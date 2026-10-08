@@ -1,6 +1,6 @@
 # Spec — benchmark-kit-boilerplate (deliverable A: dexter-bench-lab)
 
-**Status:** APPROVED (2026-10-08)
+**Status:** APPROVED (2026-10-08), amended and re-approved (2026-10-08): two compose projects per run; MongoDB exporter at 2 s
 
 Inputs: umbrella idea `pixer-nest/.claude/tasks/baseline-performance-benchmark/01-idea.md` (section A), `02-research.md` (this folder).
 
@@ -46,9 +46,10 @@ A reusable **callback sink** simulator measures asynchronous end-to-end time (re
 - **BR-5 (stability):** per metric, CV = stdev / mean across valid repetitions. ≤ 5% is `stable`, ≤ 10% is `acceptable`, > 10% is `unstable`. Unstable metrics get no comparison verdict. The thresholds are configurable in `profile.yaml`; the defaults are the ones above.
 - **BR-6 (comparison statistics):** for each metric, the effect is the ratio of medians B/A, reported with:
   - a 95% percentile-bootstrap CI (10 000 resamples, fixed PRNG seed, so reports are reproducible byte for byte);
-  - a two-sided Mann-Whitney U p-value (exact distribution when n_A, n_B ≤ 20, normal approximation above), α = 0.05.
+  - a two-sided Mann-Whitney U p-value (exact distribution when n_A, n_B ≤ 20 and there are no ties, normal approximation with tie and continuity corrections otherwise, as scipy does), α = 0.05.
 - **BR-7 (verdict):**
   - `improved` or `regressed` (direction from the catalogue entry) only if all of these hold: the CI excludes 1.0, p < α, and |ratio − 1| > that metric's noise floor;
+  - for `neutral` metrics (workload descriptors), the same condition gives `changed ↑` / `changed ↓` instead of improved/regressed (clarified during MD-2);
   - `no significant change` otherwise;
   - `inconclusive` when either side is unstable, has fewer than 3 valid repetitions, or is invalid.
 - **BR-8 (noise floor):** `bench calibrate` runs the same variant twice, interleaved (an A/A test). For each metric, the noise floor is the larger of |CI lower − 1| and |CI upper − 1| of the A/A ratio. It is stored per host class. Without a calibration for the host class, verdicts are labelled `uncalibrated` (still computed with a noise floor of 0).
@@ -129,7 +130,7 @@ Each command, in order:
 - **`bench compare <runA[:variant]> <runB[:variant]>`:** guards (BR-10, BR-11) → per-metric stats (BR-6) → verdicts (BR-7, BR-8) → `comparisons/<a>__<b>.{json,md}`.
 - **`bench calibrate`:** a run with variants `[base, base]` → store `calibration/<host-class>.json` (BR-8).
 
-The observer stack and the target share one compose project (`-p bench-<run-id>`), so cAdvisor labels identify every container by service name.
+Each run uses **two compose projects** on one run-scoped `internal` network: `<run-id>-obs` (Prometheus, cAdvisor, exporters) lives for the whole run; `<run-id>-sut` (target, seed, sink, k6) is recreated with `down -v` every repetition. cAdvisor's project and service labels identify every container. *(Amended 2026-10-08, approved by the user: a single project would wipe Prometheus on every per-repetition reset.)*
 
 ### Code level
 | File / module | Change | Notes (libs, interactions) |
@@ -148,7 +149,7 @@ The observer stack and the target share one compose project (`-p bench-<run-id>`
 | `cli/src/k6/*.ts` | New | Builds the k6 env/options from profile scale + timings (open model only, BR-1). Parses the `handleSummary` JSON (per-usecase submetrics) |
 | `core/k6/bench.js` | New | k6 helper: `scenario(fn, {usecase})` tags requests; `options()` builds arrival-rate scenarios from `__ENV`; registers always-pass thresholds per usecase so the summary contains submetrics; `expect(id)` → POST to the sink; `handleSummary` writes JSON to `/results` |
 | `core/sink/` | New | ~100-line Node HTTP service: `POST /expect {id}` (records t0), `POST /callback/*` (extracts the id from the body via the `SINK_ID_PATH` JSON path, records the latency), `GET /metrics` (Prometheus histogram `sink_e2e_seconds`, counters `sink_unmatched_total`, `sink_timeouts_total`), `POST /reset` between repetitions (BR-19) |
-| `core/observers/*` | New | Compose for Prometheus (`--storage.tsdb.path` on a per-run volume, 1 s scrape) and cAdvisor (`--docker_only`, housekeeping 1 s). Exporter services are generated from `dependencies[].type`: `mongodb` → `percona/mongodb_exporter` (`--collect-all`), `redis` → `oliver006/redis_exporter` |
+| `core/observers/*` | New | Compose for Prometheus (`--storage.tsdb.path` on a per-run volume, 1 s scrape) and cAdvisor (`--docker_only`, housekeeping 1 s). Exporter services are generated from `dependencies[].type`: `mongodb` → `percona/mongodb_exporter` (`--collector.diagnosticdata`, global connection pool, scraped every 2 s with a 1.5 s timeout because the exporter returns no data at a 1 s timeout; amended 2026-10-08, approved by the user), `redis` → `oliver006/redis_exporter` |
 | `core/metrics/catalog.yaml` | New | The kit's catalogue (list below) |
 | `cli/src/run/plan.ts` | New | Expands the matrix; ABBA order (BR-16); capacity steps (BR-17); computes timings and windows (BR-2) |
 | `cli/src/run/compose.ts` | New | Generates the override YAML: cpusets per group, `mem_limit`/`cpus` from target.yaml, `networks: bench: internal: true` (BR-13), observers + exporters + sink + k6 services |
@@ -230,15 +231,15 @@ sequenceDiagram
 One local commit per MD (code + its tests). Commits as `Brunau1 <46985145+brunau1@users.noreply.github.com>` (already set in the local config). No push without an explicit request.
 
 - [x] **MD-1: repo scaffold and CLI skeleton.** Includes README stub, MIT LICENSE, `.gitignore`, `cli/` TS project, multi-stage Dockerfile, `bench` wrapper, `bench --help`. Done when `./bench --help` runs from the container on the laptop and `docker build --target test` succeeds.
-- [ ] **MD-2: methodology document.** `docs/methodology.md`, all 10 sections, with the metric catalogue rationale and the statistical rules exactly as BR-1…BR-19. Done when every BR and every catalogue metric has a section anchor, and the generic layer contains no domain names.
-- [ ] **MD-3: config schemas and templates.** zod schemas + loader + catalogue merge; `templates/target/` skeleton; `core/metrics/catalog.yaml`; `core/versions.yaml` (digests resolved). Done when the schema tests pass and the templates validate against the schemas.
-- [ ] **MD-4: statistics module.** Done when the tests reproduce the reference values (computed independently, e.g. with scipy, and stored as test constants).
-- [ ] **MD-5: host doctor.** Probe, class, capacity plan, SMT-aware allocation, checks, classification, `bench doctor` output. Done when the injected-probe tests pass and `./bench doctor` on the laptop reports `smoke-only` with the expected failing checks (the governor, at least).
-- [ ] **MD-6: observer stack and collection.** Observer compose, exporter generation, Prometheus range-query collector, Docker-stats fallback. Done when the unit tests pass and a manual `docker compose up` of the observers scrapes a Redis + Mongo pair with no errors.
-- [ ] **MD-7: k6 helper and callback sink.** Done when the unit tests pass and the sink image builds.
-- [ ] **MD-8: run orchestrator.** Plan (matrix, ABBA, capacity steps, windows), override generation, execute lifecycle, manifest, `raw/` layout, `summary.json`, `bench prepare` / `run`. Done when the unit tests (with a fake DockerRunner) pass.
-- [ ] **MD-9: report, compare, calibrate.** Done when the unit tests pass on fixture runs.
-- [ ] **MD-10: example target and end-to-end validation.** `examples/hello-target` plus the e2e suite (smoke run, determinism, A/A noise, sensitivity, no egress). Done when the full e2e suite passes on the laptop at `tiny`/`small` scales, and the README quick start is verified by following it.
+- [x] **MD-2: methodology document.** `docs/methodology.md`, all 10 sections, with the metric catalogue rationale and the statistical rules exactly as BR-1…BR-19. Done when every BR and every catalogue metric has a section anchor, and the generic layer contains no domain names.
+- [x] **MD-3: config schemas and templates.** zod schemas + loader + catalogue merge; `templates/target/` skeleton; `core/metrics/catalog.yaml`; `core/versions.yaml` (digests resolved). Done when the schema tests pass and the templates validate against the schemas.
+- [x] **MD-4: statistics module.** Done when the tests reproduce the reference values (computed independently, e.g. with scipy, and stored as test constants).
+- [x] **MD-5: host doctor.** Probe, class, capacity plan, SMT-aware allocation, checks, classification, `bench doctor` output. Done when the injected-probe tests pass and `./bench doctor` on the laptop reports `smoke-only` with the expected failing checks (the governor, at least).
+- [x] **MD-6: observer stack and collection.** Observer compose, exporter generation, Prometheus range-query collector, Docker-stats fallback. Done when the unit tests pass and a manual `docker compose up` of the observers scrapes a Redis + Mongo pair with no errors.
+- [x] **MD-7: k6 helper and callback sink.** Done when the unit tests pass and the sink image builds.
+- [x] **MD-8: run orchestrator.** Plan (matrix, ABBA, capacity steps, windows), override generation, execute lifecycle, manifest, `raw/` layout, `summary.json`, `bench prepare` / `run`. Done when the unit tests (with a fake DockerRunner) pass.
+- [x] **MD-9: report, compare, calibrate.** Done when the unit tests pass on fixture runs.
+- [x] **MD-10: example target and end-to-end validation.** `examples/hello-target` plus the e2e suite (smoke run, determinism, A/A noise, sensitivity, no egress). Done when the full e2e suite passes on the laptop at `tiny`/`small` scales, and the README quick start is verified by following it.
 
 ## Test plan
 | Test | Type | Validates (BR-n / particularity) |
@@ -263,7 +264,7 @@ One local commit per MD (code + its tests). Commits as `Brunau1 <46985145+brunau
 | **e2e smoke:** `prepare` → `run` on hello-target (2 scenarios × 2 scales × 3 reps, short timings) → the manifest is final; `raw/` has k6 + resource series for every container (target, mongo, redis, sink, k6, observers) + Mongo/Redis exporter metrics; the report renders with the `smoke-only` label | e2e (Docker) | BR-2, BR-3, BR-12, BR-15, BR-10 |
 | **e2e determinism:** two runs → identical dataset fingerprints | e2e | BR-3 |
 | **e2e A/A:** `calibrate` on hello-target → a calibration file exists; comparing its variants gives `no significant change` for every stable metric | e2e | BR-8, BR-7 |
-| **e2e sensitivity:** variants base vs `EXTRA_DELAY_MS=20` → latency p50/p95 `regressed` with a CI excluding 1.0 (verdict computed despite smoke-only via a test-only flag `--force-verdicts`, which is labelled in the report) | e2e | BR-6, BR-7 |
+| **e2e sensitivity:** variants base vs `EXTRA_DELAY_MS=20` → latency p50 `regressed`, p95 never `improved` (implementation note: on the laptop p95/p99 have CV > 10% and are correctly `inconclusive` under BR-5; observed p50 ratio 14.4×, CI [13.9, 14.8], p = 0.029) with a CI excluding 1.0 (verdict computed despite smoke-only via a test-only flag `--force-verdicts`, which is labelled in the report) | e2e | BR-6, BR-7 |
 | **e2e no egress:** during a run, a probe container on the bench network can't reach an external address; `run` with one image removed fails before starting | e2e | BR-13 |
 | **e2e async:** hello-target `async-jobs` produces sink e2e latency metrics and zero timeouts at `tiny` scale | e2e | BR-19 |
 
