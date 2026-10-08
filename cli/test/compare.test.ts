@@ -173,13 +173,16 @@ describe('calibration (BR-8)', () => {
     expect(floors[key]).toBeGreaterThan(0);
     expect(floors[key]).toBeLessThan(0.05);
 
-    const calibration: Calibration = { schemaVersion: 1, hostClass: 'aaaaaaaaaaaa', runId: 'cal', kitVersion: 'test', floors: { [key]: 0.25 } };
+    const calibration: Calibration = { schemaVersion: 1, hostClass: 'aaaaaaaaaaaa', cpuUnit: 'logical', runId: 'cal', kitVersion: 'test', floors: { [key]: 0.25 } };
     const dir = fakeRun(root, { runId: 'r1', variants: { base: SLOW, cand: FAST } });
     const comparison = compareRuns(loadSide(`${dir}:base`), loadSide(`${dir}:cand`), catalog, { ...OPTIONS, calibration });
     const p99 = verdictOf(comparison, 'latency_p99');
     expect(p99.uncalibrated).toBe(false);
     expect(p99.noiseFloor).toBe(0.25);
     expect(p99.verdict).toBe('no-significant-change'); // an 18% effect inside a 25% noise floor
+
+    const otherUnit = compareRuns(loadSide(`${dir}:base`), loadSide(`${dir}:cand`), catalog, { ...OPTIONS, calibration: { ...calibration, cpuUnit: 'physical' } });
+    expect(verdictOf(otherUnit, 'latency_p99').uncalibrated).toBe(true);
 
     const otherHost = compareRuns(loadSide(`${dir}:base`), loadSide(`${dir}:cand`), catalog, { ...OPTIONS, calibration: { ...calibration, hostClass: 'bbbbbbbbbbbb' } });
     expect(verdictOf(otherHost, 'latency_p99').uncalibrated).toBe(true);

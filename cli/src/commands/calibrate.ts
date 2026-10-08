@@ -29,6 +29,7 @@ export async function calibrateCommand(options: RunCommandOptions & { 'calibrati
   const calibration: Calibration = {
     schemaVersion: 1,
     hostClass: manifest.host.hostClass.id,
+    cpuUnit: (manifest.config.profile as { cpuUnit: string }).cpuUnit,
     runId: manifest.runId,
     kitVersion: manifest.kitVersion,
     floors: noiseFloors(aa),

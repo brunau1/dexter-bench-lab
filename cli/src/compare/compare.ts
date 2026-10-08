@@ -16,6 +16,8 @@ export interface Side {
 export interface Calibration {
   schemaVersion: 1;
   hostClass: string;
+  /** CPU unit of the A/A run: floors only apply to runs with the same unit (BR-11). */
+  cpuUnit: string;
   runId: string;
   kitVersion: string;
   /** Noise floor per entry key (BR-8). */
@@ -86,7 +88,10 @@ export function compareRuns(a: Side, b: Side, catalog: MetricDef[], options: Com
   const thresholds = (b.manifest.config.profile as { stability: { stable: number; acceptable: number } }).stability;
   const directions = new Map(catalog.map((m) => [m.id, m.direction]));
   const bEntries = new Map(b.summary.entries.filter((e) => e.variant === b.variant).map((e) => [entryKey(e), e]));
-  const calibration = options.calibration && options.calibration.hostClass === b.manifest.host.hostClass.id ? options.calibration : null;
+  const calibration =
+    options.calibration && options.calibration.hostClass === b.manifest.host.hostClass.id && (options.calibration.cpuUnit ?? 'logical') === unitOf(b)
+      ? options.calibration
+      : null;
 
   const entries: ComparedEntry[] = [];
   for (const ea of a.summary.entries.filter((e) => e.variant === a.variant)) {
