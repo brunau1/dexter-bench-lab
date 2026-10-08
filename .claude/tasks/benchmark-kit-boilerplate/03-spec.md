@@ -131,7 +131,7 @@ Each command, in order:
 - **`bench compare <runA[:variant]> <runB[:variant]>`:** guards (BR-10, BR-11) → per-metric stats (BR-6) → verdicts (BR-7, BR-8) → `comparisons/<a>__<b>.{json,md}`.
 - **`bench calibrate`:** a run with variants `[base, base]` → store `calibration/<host-class>.json` (BR-8).
 
-Each run uses **two compose projects** on one run-scoped `internal` network: `<run-id>-obs` (Prometheus, cAdvisor, exporters) lives for the whole run; `<run-id>-sut` (target, seed, sink, k6) is recreated with `down -v` every repetition. cAdvisor's project and service labels identify every container. *(Amended 2026-10-08, approved by the user: a single project would wipe Prometheus on every per-repetition reset.)*
+Each run uses **two compose projects** on one run-scoped `internal` network: `<run-id>-obs` (Prometheus, cAdvisor, exporters) lives for the whole run; `<run-id>-sut-NNN` (target, seed, sink, k6) is a new project for every repetition, discarded with `down -v` when it ends. *(Refined at review: with one shared target project, cAdvisor's lingering series of removed containers matched the selectors, making CPU rates negative and inflating memory; caught by the e2e rerun.)* cAdvisor's project and service labels identify every container. *(Amended 2026-10-08, approved by the user: a single project would wipe Prometheus on every per-repetition reset.)*
 
 ### Code level
 | File / module | Change | Notes (libs, interactions) |
