@@ -3,7 +3,7 @@
 > Resume for the next session. Rewritten in place at every update; git history keeps earlier states.
 
 - **Updated:** 2026-10-08 · **Phase reached:** closed (review APPROVED, ADRs written) · **Verdict:** APPROVED
-- **Repo / branch:** `~/workspace/dexter-bench-lab` → `git@github-personal:brunau1/dexter-bench-lab.git` · `main` @ `b20b4d8` (+ this file) · **Pushed:** yes · **Merged:** n/a (work is on `main`; personal repo, no PR flow)
+- **Repo / branch:** `~/workspace/dexter-bench-lab` → `git@github-personal:brunau1/dexter-bench-lab.git` · `main` @ `242acb1` · **Release:** `v0.1.0` (annotated tag on `242acb1`, pushed) · **Pushed:** yes · **Merged:** n/a (work is on `main`; personal repo, no PR flow)
 - **Umbrella:** `~/workspace/pixer-nest/.claude/tasks/baseline-performance-benchmark/` (`01-idea.md` = the roadmap A → B → C; `06-continuation.md` = roadmap state, local only)
 
 ## Where things are
@@ -39,17 +39,16 @@
 
 ## Open questions
 - [ ] Which machine is the dedicated benchmark host (CPU, RAM, on-prem or non-burstable cloud)? — user — blocks deliverable C's baseline, not B.
-- [ ] Tag a kit release (e.g. `v0.1.0`) so skill B can pin it? — user — blocks B's pinning design.
 - [ ] Where B's handoffs live (`~/.claude/.claude/tasks/<slug>/` in the config repo, or elsewhere)? — user — first step of B.
 
 ## Next steps
-1. **Deliverable B: specialization skill.** `/research benchmark-specialization-skill`, using the umbrella `01-idea.md` section B and the open questions above. Research must define the boilerplate ↔ skill contract: how the skill fetches a pinned kit version, what it generates from `templates/target/`, how a generated project upgrades. Gate after research.
+1. **Deliverable B: specialization skill.** `/research benchmark-specialization-skill`, using the umbrella `01-idea.md` section B and the open questions above. Research must define the boilerplate ↔ skill contract: how the skill fetches a pinned kit version (first release to pin: `v0.1.0`), what it generates from `templates/target/`, how a generated project upgrades. Gate after research.
 2. `/spec` → approval → `/implement` → `/review` for B, following `~/.claude/docs/development-workflow.md`. Close with B's own `06-continuation.md` and update the umbrella's.
 3. **Deliverable C: pixer-nest application** (after B). Use the skill to generate the pixer-nest test project. Answer C's open questions first: the bank provider to mock, where the project lives, scales from estrelabet volumes, how the jobs process runs. Then calibrate and run the baseline on the benchmark host.
 
 ## After merge
 - [x] Pushed to `origin/main`.
-- [ ] Optional: tag `v0.1.0` on `b20b4d8` or later and push the tag (only on the user's request).
+- [x] Tagged `v0.1.0` on `242acb1` and pushed the tag (2026-10-08).
 - [ ] Follow-ups from the review: pin the CLI to the reserved core (n3); list metrics present only in B (n4).
 - [ ] Local clean-up when no longer needed: `examples/hello-target/results-e2e/` (ignored by git).
 
@@ -59,6 +58,7 @@ Paste into a new session, from `~/workspace/dexter-bench-lab`:
 Read .claude/tasks/benchmark-kit-boilerplate/06-continuation.md, then the umbrella roadmap at
 ~/workspace/pixer-nest/.claude/tasks/baseline-performance-benchmark/01-idea.md (section B) and its
 06-continuation.md. Deliverable A (this kit) is closed. Start deliverable B, the specialization skill:
-first ask me the open questions listed in the continuation (kit release tag, where B's handoffs live),
+the kit is released as v0.1.0 for the skill to pin. First ask me the open questions listed in the
+continuation (where B's handoffs live, the benchmark host),
 then run /research benchmark-specialization-skill and stop at its gate. Follow my development workflow.
 ```
