@@ -15,6 +15,8 @@ export interface RepetitionRecord {
   datasetSha256: string | null;
   valid: boolean;
   invalidReasons: string[];
+  /** Collection problems that did not invalidate the repetition, e.g. unparsable fallback samples. */
+  warnings?: string[];
 }
 
 /** BR-12: everything needed to reproduce, audit and compare a run. */

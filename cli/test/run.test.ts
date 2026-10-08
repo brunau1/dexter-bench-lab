@@ -321,7 +321,7 @@ function harness(options: FakeOptions = {}, signal?: AbortSignal) {
     },
     now: () => clock.t,
     log: (m) => logs.push(m),
-    statsSampler: () => ({ start: () => undefined, stop: async () => new Map() }),
+    statsSampler: () => ({ start: () => undefined, stop: async () => new Map(), parseErrors: 0 }),
     ...(signal ? { signal } : {}),
   };
   return { runner, deps, logs };

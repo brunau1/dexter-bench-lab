@@ -121,6 +121,8 @@ export function renderReport(runDir: string, manifest: Manifest, summary: RunSum
   ];
   if (host.failedChecks.length > 0) out.push('**Failed host checks:**', '', ...host.failedChecks.map((c) => `- ${c}`), '');
   if (!manifest.valid) out.push('> ❌ **RUN INVALID:** ' + manifest.invalidReasons.join('; '), '');
+  const warnings = manifest.repetitions.flatMap((r) => (r.warnings ?? []).map((w) => `- \`${r.dir}\`: ${w}`));
+  if (warnings.length > 0) out.push('**Collection warnings:**', '', ...warnings, '');
   if (summary.invalidRepetitions.length > 0) {
     out.push('**Invalid repetitions (excluded from statistics):**', '', ...summary.invalidRepetitions.map((r) => `- \`${r.dir}\`: ${r.reasons.join('; ')}`), '');
   }

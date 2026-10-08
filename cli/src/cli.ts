@@ -8,6 +8,7 @@ import { runCommand } from './commands/run.js';
 import { CompareRefusedError } from './compare/compare.js';
 import { ConfigError } from './config/load.js';
 import { IncompleteRunError } from './run/manifest.js';
+import { InterruptedError } from './signals.js';
 
 const USAGE = `dexter-bench-lab: controlled, reproducible benchmark runs in Docker
 
@@ -78,6 +79,10 @@ export async function main(argv: string[]): Promise<number> {
         return 2;
     }
   } catch (error) {
+    if (error instanceof InterruptedError) {
+      process.stderr.write('interrupted: everything the run started was torn down; the run is marked failed\n');
+      return 130;
+    }
     if (error instanceof ConfigError || error instanceof CompareRefusedError || error instanceof IncompleteRunError) {
       process.stderr.write(`${error.message}\n`);
       return 2;

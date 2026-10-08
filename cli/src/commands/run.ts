@@ -57,12 +57,6 @@ export async function runCommandWith(options: RunCommandOptions, variants?: { na
 }
 
 export async function runCommand(options: RunCommandOptions): Promise<number> {
-  try {
-    const { manifest } = await runCommandWith(options);
-    return manifest.valid ? 0 : 3;
-  } catch (error) {
-    if (!(error instanceof InterruptedError)) throw error;
-    process.stderr.write('run interrupted: everything was torn down; the run is marked failed\n');
-    return 130;
-  }
+  const { manifest } = await runCommandWith(options);
+  return manifest.valid ? 0 : 3;
 }

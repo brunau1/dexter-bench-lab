@@ -60,7 +60,7 @@ export interface RunDeps {
   sleep(ms: number): Promise<void>;
   now(): number;
   log(message: string): void;
-  statsSampler(): Pick<DockerStatsSampler, 'start' | 'stop'>;
+  statsSampler(): Pick<DockerStatsSampler, 'start' | 'stop' | 'parseErrors'>;
   /** Aborted on SIGINT/SIGTERM: the run stops at once and still tears everything down. */
   signal?: AbortSignal;
 }
@@ -252,7 +252,14 @@ async function runRepetition(ctx: RunContext, deps: RunDeps, step: Step, timings
     if (deps.now() < waitUntil) await deps.sleep(waitUntil - deps.now());
   } finally {
     // the fallback sampler must never outlive the repetition, whatever failed above
-    if (sampler) points = await sampler.stop();
+    if (sampler) {
+      points = await sampler.stop();
+      if (sampler.parseErrors > 0) {
+        const warning = `docker stats: ${sampler.parseErrors} unparsable lines skipped; container metrics may be incomplete (§8)`;
+        record.warnings = [...(record.warnings ?? []), warning];
+        deps.log(`[${step.scenario}/${step.scale}/${step.variant}] rep ${step.rep}: ${warning}`);
+      }
+    }
   }
 
   const measureSeconds = timings.durationMs / 1000;
