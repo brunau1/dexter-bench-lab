@@ -179,10 +179,24 @@ export const metricSchema = z
     message: `derived metrics must be one of: ${DERIVED_METRICS.join(', ')}`,
     path: ['id'],
   })
-  .refine((m) => m.source !== 'prometheus' || !/\[\d+(ms|s|m|h)\]/.test(m.query) || m.range !== undefined, {
-    message: 'a query with a range selector must declare `range`, so its look-back never reaches into the warm-up (BR-2)',
-    path: ['range'],
+  .superRefine((m, ctx) => {
+    if (m.source !== 'prometheus') return;
+    const longest = longestRangeMs(m.query);
+    if (longest > 0 && (m.range ?? 0) < longest) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['range'],
+        message: `the query looks back ${longest / 1000}s; declare range ≥ ${longest / 1000}s so the look-back never reaches into the warm-up (BR-2)`,
+      });
+    }
   });
+
+/** Longest range selector of a PromQL query, including subqueries (`[1m:10s]` → 1 m), in ms. */
+export function longestRangeMs(query: string): number {
+  let longest = 0;
+  for (const match of query.matchAll(/\[(\d+(?:ms|s|m|h))(?::[^\]]*)?\]/g)) longest = Math.max(longest, parseDurationMs(match[1]!));
+  return longest;
+}
 
 export const catalogSchema = z.object({ schemaVersion: z.literal(1), metrics: z.array(metricSchema) });
 
