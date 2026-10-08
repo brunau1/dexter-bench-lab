@@ -1,0 +1,36 @@
+#!/bin/sh
+# Runs the dexter-bench-lab CLI in its container. The host needs only Docker and git.
+#
+# The current directory is mounted at the same path inside the container, so
+# paths in compose files resolve identically for the CLI and the Docker daemon.
+set -eu
+
+KIT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+IMAGE=dexter-bench-cli:local
+SOCKET=/var/run/docker.sock
+
+if [ ! -S "$SOCKET" ]; then
+  echo "bench: Docker socket not found at $SOCKET" >&2
+  exit 1
+fi
+
+# Rebuild on every call: the layer cache makes it near-instant when nothing changed,
+# and it guarantees the CLI matches the kit checkout.
+docker build --quiet --target runtime -t "$IMAGE" -f "$KIT_DIR/cli/Dockerfile" "$KIT_DIR" >/dev/null
+
+KIT_VERSION=$(git -C "$KIT_DIR" describe --always --dirty 2>/dev/null || echo unknown)
+SOCKET_GID=$(stat -c %g "$SOCKET" 2>/dev/null || stat -f %g "$SOCKET")
+
+if [ -t 0 ] && [ -t 1 ]; then TTY_FLAGS=-it; else TTY_FLAGS=; fi
+
+# shellcheck disable=SC2086
+exec docker run --rm $TTY_FLAGS \
+  --user "$(id -u):$(id -g)" \
+  --group-add "$SOCKET_GID" \
+  -e HOME=/tmp \
+  -e BENCH_KIT_VERSION="$KIT_VERSION" \
+  -e BENCH_HOST_UID="$(id -u)" \
+  -v "$SOCKET:$SOCKET" \
+  -v "$PWD:$PWD" \
+  -w "$PWD" \
+  "$IMAGE" "$@"
