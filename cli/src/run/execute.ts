@@ -412,7 +412,7 @@ export async function executeRun(options: RunOptions, rawDeps: RunDeps): Promise
     if (ms <= longestRange) throw new Error(`${field} (${ms / 1000}s) must be longer than the longest metric range (${longestRange / 1000}s, BR-2)`);
   }
   const services = benchServices(target, profile);
-  const report = evaluateHost(await probeHost(deps.runner, deps.hostFiles), services);
+  const report = evaluateHost(await probeHost(deps.runner, deps.hostFiles), services, profile.cpuUnit);
 
   const runId = runIdFor(deps.now(), target.name);
   const runDir = resolve(options.outDir, runId);

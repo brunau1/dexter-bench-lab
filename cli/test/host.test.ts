@@ -130,6 +130,25 @@ describe('capacity plan and classification (BR-9)', () => {
     }
   });
 
+  it.each([
+    // SUT limits sum to 4 CPUs: logical = 2 SMT cores (4 threads), physical = 4 whole cores (8 threads)
+    ['logical', 4],
+    ['physical', 8],
+  ] as const)('counts the SUT need in %s CPUs (m8)', (unit, sutThreads) => {
+    const plan = capacityPlan(facts(SERVER), DEMAND, unit);
+    expect(plan.unit).toBe(unit);
+    expect(plan.cpus!.groups.sut).toHaveLength(sutThreads);
+  });
+
+  it('a host that fits logical CPUs can be too small for physical ones', () => {
+    // 8 cores × 2 threads: logical needs 1 + 2 + 2 + 1 = 6 cores, physical needs 1 + 4 + 3 + 2 = 10
+    const small = facts({ ...SERVER, cores: 8 });
+    expect(evaluateHost(small, DEMAND, 'logical').checks.find((c) => c.id === 'isolation')!.ok).toBe(true);
+    const physical = evaluateHost(small, DEMAND, 'physical').checks.find((c) => c.id === 'isolation')!;
+    expect(physical.ok).toBe(false);
+    expect(physical.detail).toContain('physical CPUs');
+  });
+
   it('classifies the sized server as benchmark-grade', () => {
     const report = evaluateHost(facts(SERVER), DEMAND);
     expect(report.checks.filter((c) => !c.ok)).toEqual([]);

@@ -2,6 +2,8 @@
 schemaVersion: 1
 seed: 42                              # dataset seed; fixed so every repetition starts from the same data
 repetitions: 5                        # ≥ 3 (BR-4); use 10+ when effects below ~10% matter
+cpuUnit: logical                      # logical: limits count hyper-threads, like cloud vCPUs (default)
+                                      # physical: limits count whole cores (code efficiency without SMT contention)
 
 timings:                              # BR-2: only `duration` is measured
   warmup: 30s

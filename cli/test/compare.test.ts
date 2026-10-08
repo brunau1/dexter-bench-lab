@@ -16,6 +16,7 @@ interface FakeRunSpec {
   hostClass?: string;
   baseline?: boolean;
   valid?: boolean;
+  cpuUnit?: 'logical' | 'physical';
   /** variant → metric → one value per repetition (subject `api`, or `k6` for overhead). */
   variants: Record<string, Record<string, number[]>>;
 }
@@ -60,7 +61,7 @@ function fakeRun(root: string, spec: FakeRunSpec): string {
     collector: 'cadvisor',
     images: {},
     seed: 1,
-    config: { target: {}, profile: { stability: { stable: 0.05, acceptable: 0.1 } } },
+    config: { target: {}, profile: { stability: { stable: 0.05, acceptable: 0.1 }, cpuUnit: spec.cpuUnit ?? 'logical' } },
     repetitions,
     valid: spec.valid !== false,
     invalidReasons: spec.valid === false ? ['dataset fingerprints differ'] : [],
@@ -126,6 +127,15 @@ describe('comparison guards (BR-10, BR-11)', () => {
     expect(comparison.verdictsWithheld[0]).toContain('BR-11');
     expect(verdictOf(comparison, 'latency_p99').verdict).toBe('withheld');
     expect(verdictOf(comparison, 'latency_p99').ratio).toBeCloseTo(173 / 212, 10);
+  });
+
+  it('withholds verdicts between runs that counted CPU limits in different units (BR-11)', () => {
+    const root = mkdtempSync(join(tmpdir(), 'bench-cmp-'));
+    const a = fakeRun(root, { runId: 'r1', cpuUnit: 'logical', variants: { base: SLOW } });
+    const b = fakeRun(root, { runId: 'r2', cpuUnit: 'physical', variants: { base: FAST } });
+    const comparison = compareRuns(loadSide(a), loadSide(b), catalog, OPTIONS);
+    expect(comparison.verdictsWithheld[0]).toContain('different CPU units (logical vs physical)');
+    expect(verdictOf(comparison, 'latency_p99').verdict).toBe('withheld');
   });
 
   it('withholds verdicts on smoke-only runs, unless forced with a visible label', () => {

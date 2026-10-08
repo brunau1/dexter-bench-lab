@@ -112,7 +112,7 @@ export function renderReport(runDir: string, manifest: Manifest, summary: RunSum
         ['Host class', `${host.hostClass.id} (${host.hostClass.label})`],
         ['Classification', host.classification],
         ['Container collector', manifest.collector === 'cadvisor' ? 'cAdvisor' : 'docker stats (fallback, §8)'],
-        ['CPU isolation', manifest.cpuPlan?.cpus ? 'whole physical cores per group' : 'none (host too small): groups share cores'],
+        ['CPU isolation', manifest.cpuPlan?.cpus ? `whole physical cores per group; limits counted in ${manifest.cpuPlan.unit} CPUs` : 'none (host too small): groups share cores'],
         ['Seed', String(manifest.seed)],
         ['Valid repetitions', `${summary.validRepetitions} of ${manifest.repetitions.length}`],
       ],

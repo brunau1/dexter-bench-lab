@@ -77,6 +77,8 @@ export function compareRuns(a: Side, b: Side, catalog: MetricDef[], options: Com
   }
   const withheld: string[] = [];
   if (!sameHost) withheld.push('different host classes: numbers are not comparable (BR-11)');
+  const unitOf = (s: Side) => (s.manifest.config.profile as { cpuUnit?: string }).cpuUnit ?? 'logical';
+  if (unitOf(a) !== unitOf(b)) withheld.push(`different CPU units (${unitOf(a)} vs ${unitOf(b)}): the SUT got different CPU, numbers are not comparable (BR-11)`);
   const smoke = [a, b].filter((s) => !s.manifest.host.baseline).map((s) => s.manifest.runId);
   if (smoke.length > 0 && !options.forceVerdicts) withheld.push(`non-baseline run(s) on a smoke-only host: ${[...new Set(smoke)].join(', ')} (BR-10)`);
 

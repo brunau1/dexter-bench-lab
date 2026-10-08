@@ -13,8 +13,9 @@ export async function runDoctor(options: DoctorOptions, runner: DockerRunner = n
   if ((options.target === undefined) !== (options.profile === undefined)) {
     throw new Error('pass both --target and --profile to plan capacity, or neither');
   }
-  const services = options.target && options.profile ? benchServices(loadTarget(options.target), loadProfile(options.profile)) : undefined;
-  return evaluateHost(await probeHost(runner, files), services);
+  const profile = options.profile ? loadProfile(options.profile) : undefined;
+  const services = options.target && profile ? benchServices(loadTarget(options.target), profile) : undefined;
+  return evaluateHost(await probeHost(runner, files), services, profile?.cpuUnit);
 }
 
 export async function doctorCommand(options: DoctorOptions & { json?: boolean }): Promise<number> {

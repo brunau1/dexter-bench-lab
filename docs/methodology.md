@@ -244,7 +244,13 @@ The kit splits the host into groups, each pinned to its own **physical** cores (
 - **Observers:** Prometheus, cAdvisor and the exporters.
 - **Reserved:** one physical core for the operating system and the bench CLI.
 
-Sizing: each group needs at least `ceil(Σ CPU limits of its containers)` cores, and the host needs RAM ≥ 1.2 × Σ memory limits of all bench containers.
+Sizing: each group needs at least `ceil(Σ CPU limits of its containers)` CPUs, and the host needs RAM ≥ 1.2 × Σ memory limits of all bench containers.
+
+**CPU unit.** The profile chooses what a CPU limit counts (`cpuUnit`):
+- `logical` (default) counts hyper-threads. A limit of 2 is met by one physical core with its two threads. This mirrors cloud vCPUs, which are usually hyper-threads, so it is the right choice for replicating a production task size.
+- `physical` counts whole cores. A limit of 2 gets two physical cores. Use it to measure the code's own CPU efficiency without contention from the sibling thread; it needs a larger host.
+
+Either way, isolation *between* groups is the same: every group receives whole physical cores, so the load generator and the observers never share execution units with the SUT. Runs made with different units are not comparable ([BR-11](#host-class)).
 
 ### 6.2 Host settings {#host-settings}
 | Setting | Recommended | Why |
@@ -259,7 +265,7 @@ The kit **checks** these settings; it never changes them, because changing host 
 
 ### 6.3 Classification {#classification}
 - **BR-9 (host classification).** A host is **benchmark-grade** only if all of these hold; otherwise it is **smoke-only**, and every failing check is listed:
-  - isolation fits: whole physical cores per group, one physical core reserved, no overlap, each group at least `ceil(Σ CPU limits)` cores;
+  - isolation fits: whole physical cores per group, one physical core reserved, no overlap, each group at least `ceil(Σ CPU limits)` CPUs in the profile's CPU unit;
   - RAM ≥ 1.2 × Σ memory limits;
   - the governor is `performance` on every core;
   - swap used < 64 MiB;
@@ -268,7 +274,7 @@ The kit **checks** these settings; it never changes them, because changing host 
 - **BR-10 (smoke-only results).** Runs on a smoke-only host are labelled **non-baseline**. Their numbers are shown, but no verdicts are drawn from them. Developer laptops are typically smoke-only: they are for checking that scenarios and the pipeline work, not for baselines.
 
 ### 6.4 Host classes {#host-class}
-- **BR-11 (host class).** A host class is identified by CPU model, physical cores, logical CPUs, total RAM (GiB), kernel major.minor and cgroup version. Comparisons and calibration lookups only use runs of the same class. Overriding this shows the numbers labelled **not comparable**, without verdicts.
+- **BR-11 (host class).** A host class is identified by CPU model, physical cores, logical CPUs, total RAM (GiB), kernel major.minor and cgroup version. Comparisons and calibration lookups only use runs of the same class. Overriding this shows the numbers labelled **not comparable**, without verdicts. Runs that used different CPU units ([§6.1](#isolation)) are treated the same way.
 
 ---
 

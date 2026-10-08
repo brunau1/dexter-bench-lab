@@ -22,6 +22,7 @@ const cpus = z.number().positive().max(256);
 const limits = { cpus, memory };
 
 export const DEPENDENCY_TYPES = ['mongodb', 'redis', 'custom'] as const;
+export const CPU_UNITS = ['logical', 'physical'] as const;
 
 const exporterSpec = z.object({
   image: z.string().min(1),
@@ -83,6 +84,11 @@ export const profileSchema = z
     schemaVersion: z.literal(1),
     seed: z.number().int().nonnegative(),
     repetitions: z.number().int().min(3, 'at least 3 repetitions are needed to estimate spread (BR-4)').default(5),
+    /**
+     * Unit of the CPU limits when planning isolation (BR-9): `logical` counts hyper-threads, like cloud
+     * vCPUs; `physical` counts whole cores. Groups always receive whole physical cores either way.
+     */
+    cpuUnit: z.enum(CPU_UNITS).default('logical'),
     timings: z.object({ warmup: duration, duration, cooldown: duration }),
     stability: z
       .object({ stable: z.number().positive().max(1), acceptable: z.number().positive().max(1) })
@@ -200,3 +206,4 @@ export type MetricDef = z.output<typeof metricSchema>;
 export type Catalog = z.output<typeof catalogSchema>;
 export type Versions = z.output<typeof versionsSchema>;
 export type DependencyType = (typeof DEPENDENCY_TYPES)[number];
+export type CpuUnit = (typeof CPU_UNITS)[number];

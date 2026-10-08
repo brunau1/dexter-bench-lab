@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { CpuUnit } from '../config/schema.js';
 import type { BenchService, Group } from './demand.js';
 import type { HostFacts } from './probe.js';
 
@@ -30,32 +31,38 @@ export interface CpuPlan {
 }
 
 export interface CapacityPlan {
-  /** Logical CPUs each group needs: ceil(Σ CPU limits). */
+  unit: CpuUnit;
+  /** CPUs each group needs, in `unit`: ceil(Σ CPU limits). */
   needs: Record<Group, number>;
   memoryNeededBytes: number;
   /** Whole-physical-core allocation, or null when the host is too small to isolate the groups. */
   cpus: CpuPlan | null;
 }
 
-/** BR-9: allocates whole physical cores per group, keeping the first core for the OS and the CLI. */
-export function capacityPlan(facts: HostFacts, services: BenchService[]): CapacityPlan {
+/**
+ * BR-9: allocates whole physical cores per group, keeping the first core for the OS and the CLI.
+ * `logical` counts each core's hyper-threads towards the need; `physical` counts whole cores.
+ */
+export function capacityPlan(facts: HostFacts, services: BenchService[], unit: CpuUnit = 'logical'): CapacityPlan {
   const needs = Object.fromEntries(
     GROUPS.map((g) => [g, Math.ceil(services.filter((s) => s.group === g).reduce((sum, s) => sum + s.cpus, 0) - 1e-9)]),
   ) as Record<Group, number>;
   const memoryNeededBytes = Math.ceil(services.reduce((sum, s) => sum + s.memory, 0) * RAM_HEADROOM);
 
   const [reservedCore, ...cores] = facts.physicalCores;
-  if (!reservedCore) return { needs, memoryNeededBytes, cpus: null };
+  if (!reservedCore) return { unit, needs, memoryNeededBytes, cpus: null };
   const groups = { sut: [], external: [], observers: [] } as Record<Group, number[]>;
   let next = 0;
   for (const group of GROUPS) {
-    while (groups[group].length < needs[group]) {
+    let granted = 0;
+    while (granted < needs[group]) {
       const core = cores[next++];
-      if (!core) return { needs, memoryNeededBytes, cpus: null };
+      if (!core) return { unit, needs, memoryNeededBytes, cpus: null };
       groups[group].push(...core.cpus);
+      granted += unit === 'physical' ? 1 : core.cpus.length;
     }
   }
-  return { needs, memoryNeededBytes, cpus: { reserved: reservedCore.cpus, groups } };
+  return { unit, needs, memoryNeededBytes, cpus: { reserved: reservedCore.cpus, groups } };
 }
 
 export interface Check {
@@ -89,20 +96,20 @@ function versionAtLeast(version: string, minimum: string): boolean {
 const gib = (bytes: number) => `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
 
 function describePlan(plan: CapacityPlan, facts: HostFacts): string {
-  const threads = Math.max(1, ...facts.physicalCores.map((c) => c.cpus.length));
+  const threads = plan.unit === 'physical' ? 1 : Math.max(1, ...facts.physicalCores.map((c) => c.cpus.length));
   const needed = GROUPS.reduce((sum, g) => sum + Math.ceil(plan.needs[g] / threads), 1);
   const wanted = GROUPS.map((g) => `${g} ${plan.needs[g]}`).join(', ');
   if (plan.cpus) {
     const got = GROUPS.map((g) => `${g} [${plan.cpus!.groups[g].join(',')}]`).join(', ');
-    return `${got}; reserved [${plan.cpus.reserved.join(',')}]`;
+    return `${got}; reserved [${plan.cpus.reserved.join(',')}] (${plan.unit} CPUs)`;
   }
-  return `needs ~${needed} physical cores (logical CPUs: ${wanted}, +1 reserved core), host has ${facts.physicalCores.length}`;
+  return `needs ~${needed} physical cores (${plan.unit} CPUs: ${wanted}, +1 reserved core), host has ${facts.physicalCores.length}`;
 }
 
 /** BR-9: runs every check; the host is benchmark-grade only when all required checks pass. */
-export function evaluateHost(facts: HostFacts, services?: BenchService[]): DoctorReport {
+export function evaluateHost(facts: HostFacts, services?: BenchService[], unit: CpuUnit = 'logical'): DoctorReport {
   const checks: Check[] = [];
-  const plan = services ? capacityPlan(facts, services) : null;
+  const plan = services ? capacityPlan(facts, services, unit) : null;
   if (plan) {
     checks.push({ id: 'isolation', ok: plan.cpus !== null, required: true, detail: describePlan(plan, facts) });
     checks.push({
