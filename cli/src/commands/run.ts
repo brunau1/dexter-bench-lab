@@ -13,9 +13,9 @@ export interface RunCommandOptions {
   'raw-samples'?: boolean;
 }
 
-export async function runCommand(options: RunCommandOptions): Promise<number> {
+export async function runCommandWith(options: RunCommandOptions, variants?: { name: string; env: Record<string, string> }[]) {
   if (!options.target || !options.profile) throw new Error('bench run needs --target and --profile');
-  const { runDir, manifest } = await executeRun(
+  const result = await executeRun(
     {
       targetFile: options.target,
       profileFile: options.profile,
@@ -23,6 +23,7 @@ export async function runCommand(options: RunCommandOptions): Promise<number> {
       mode: options.capacity ? 'capacity' : 'matrix',
       rawSamples: options['raw-samples'] ?? false,
       kitVersion: process.env.BENCH_KIT_VERSION ?? 'unknown',
+      ...(variants ? { variants } : {}),
     },
     {
       runner: new DockerCli(),
@@ -36,10 +37,16 @@ export async function runCommand(options: RunCommandOptions): Promise<number> {
       statsSampler: () => new DockerStatsSampler(),
     },
   );
+  const { runDir, manifest } = result;
   const invalid = manifest.repetitions.filter((r) => !r.valid).length;
   process.stdout.write(`${runDir}\n`);
   process.stderr.write(
     `run ${manifest.runId}: ${manifest.repetitions.length} repetitions (${invalid} invalid), ${manifest.host.baseline ? 'baseline' : 'non-baseline (smoke-only host)'}${manifest.valid ? '' : `, RUN INVALID: ${manifest.invalidReasons.join('; ')}`}\n`,
   );
+  return result;
+}
+
+export async function runCommand(options: RunCommandOptions): Promise<number> {
+  const { manifest } = await runCommandWith(options);
   return manifest.valid ? 0 : 3;
 }

@@ -22,8 +22,12 @@ import { derivedSamples, sutMemoryQuery } from './derived.js';
 import { checkDatasetFingerprints, writeManifest, type Manifest, type RepetitionRecord } from './manifest.js';
 import { buildPlan, capacityRates, measurementWindow, stepDir, type Step, type Window } from './plan.js';
 import { sinkImageTag } from './images.js';
+import { renderReport } from '../report/render.js';
 import { writeSummary } from './summary.js';
 
+export const REPORT_FILE = 'report.md';
+
+export const CATALOG_FILE = 'catalog.json';
 export const RESERVED_SERVICES = ['k6', 'sink', 'prometheus', 'cadvisor'];
 const PROMETHEUS_URL = 'http://prometheus:9090';
 const SINK_URL = `http://sink:${SINK_PORT}`;
@@ -40,6 +44,8 @@ export interface RunOptions {
   mode: 'matrix' | 'capacity';
   rawSamples: boolean;
   kitVersion: string;
+  /** Replaces the profile's variants (used by calibrate for an A/A run). */
+  variants?: { name: string; env: Record<string, string> }[];
 }
 
 export interface RunDeps {
@@ -372,7 +378,8 @@ async function cleanup(ctx: RunContext, deps: RunDeps): Promise<void> {
 export async function executeRun(options: RunOptions, deps: RunDeps): Promise<{ runDir: string; manifest: Manifest }> {
   if (!deps.selfContainer) throw new Error('bench run must run inside the CLI container (use the ./bench wrapper) to reach the run network');
   const target = loadTarget(options.targetFile);
-  const profile = loadProfile(options.profileFile);
+  const loaded = loadProfile(options.profileFile);
+  const profile = options.variants ? { ...loaded, variants: options.variants } : loaded;
   for (const [name, script] of Object.entries(profile.scripts)) {
     if (relative(profile.dir, script).startsWith('..')) throw new Error(`script of scenario "${name}" must be inside the profile directory ${profile.dir}`);
   }
@@ -401,6 +408,8 @@ export async function executeRun(options: RunOptions, deps: RunDeps): Promise<{ 
   ]);
 
   copyFileSync(kitPath('core', 'k6', 'bench.js'), join(runDir, 'kit', 'k6', 'bench.js'));
+  // the merged catalogue travels with the run, so reports regenerate anywhere (BR-18)
+  writeFileSync(join(runDir, 'kit', CATALOG_FILE), `${JSON.stringify(catalog, null, 1)}\n`);
   writeFileSync(join(runDir, 'kit', 'prometheus.yml'), prometheusConfig(exporters));
   const cpus = report.plan?.cpus ?? null;
   const sutOverridePath = join(runDir, 'kit', 'sut.override.yaml');
@@ -502,6 +511,7 @@ export async function executeRun(options: RunOptions, deps: RunDeps): Promise<{ 
     deps.log(`run ${runId}: tearing down`);
     await cleanup(ctx, deps);
   }
-  writeSummary(runDir, manifest, catalog);
+  const summary = writeSummary(runDir, manifest, catalog);
+  writeFileSync(join(runDir, REPORT_FILE), renderReport(runDir, manifest, summary));
   return { runDir, manifest };
 }
