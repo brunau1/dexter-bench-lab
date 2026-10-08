@@ -1,0 +1,42 @@
+# Observer stack of a run (§4, BR-15). Lives for the whole run in its own compose project, on the
+# run's internal network, while the target project is recreated every repetition.
+# The CLI sets the BENCH_* variables; exporters and cpusets come from the generated override.
+services:
+  prometheus:
+    image: ${BENCH_PROMETHEUS_IMAGE:?}
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --web.listen-address=:9090
+    volumes:
+      - ${BENCH_RUN_DIR:?}/kit/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - tsdb:/prometheus
+    networks: [bench]
+
+  cadvisor:
+    image: ${BENCH_CADVISOR_IMAGE:?}
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=1s
+      - --max_housekeeping_interval=1s
+      - --enable_metrics=cpu,memory,network,diskIO,oom_event
+      - --store_container_labels=false
+      - --whitelisted_container_labels=com.docker.compose.project,com.docker.compose.service
+    privileged: true
+    devices: [/dev/kmsg]
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - ${BENCH_DOCKER_ROOT:-/var/lib/docker}:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    networks: [bench]
+
+volumes:
+  tsdb:
+
+networks:
+  bench:
+    name: ${BENCH_NETWORK:?}
+    external: true

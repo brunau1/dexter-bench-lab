@@ -287,7 +287,7 @@ What the kit can't guarantee, and what to do about it:
 - **Managed services are approximated.** A database in a container is not a managed cloud database: storage, replication and network differ. Compare versions against the same local dependency, not local against cloud.
 - **Shared hardware remains shared.** Pinning cores separates CPU time, but last-level cache and memory bandwidth are still shared between groups. The overhead section of each report shows how much the kit itself consumed.
 - **macOS and Windows.** Docker runs inside a virtual machine. Limits, CPU accounting and host checks describe that VM, not the physical machine. Results are valid relative to the same VM configuration only.
-- **Collector precision.** The container collector samples once per second; very short bursts are averaged. The fallback collector (when cAdvisor can't read the host's cgroup layout) covers CPU, memory, network and disk only.
+- **Collector precision.** The container collector samples once per second; very short bursts are averaged. The MongoDB exporter can't answer within a 1 s scrape timeout, so MongoDB internals are sampled every 2 s. The fallback collector (when cAdvisor can't read the host's cgroup layout) covers CPU, memory, network and disk only.
 - **Small samples.** See [§5.5](#small-n).
 - **Not measured:** client-side rendering, real network paths, third-party services (they are simulated), long-term effects beyond the measurement window (memory leaks over hours, data growth over months).
 

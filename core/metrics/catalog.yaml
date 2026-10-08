@@ -6,6 +6,7 @@
 #   prometheus  query = PromQL range query over the measurement window, 1 s step. Placeholders:
 #                 {{containers}}  every container of the bench project
 #                 {{sut}}         containers of the SUT group (services + dependencies)
+#                 {{service}}     grouping labels (project, service): one series per compose service
 #                 {{job}}         the exporter scrape job of one dependency
 #   derived     computed in code from other metrics (§4.5)
 # aggregation reduces the window to one value per repetition: avg | max | p95 | rate | delta | value
@@ -136,7 +137,7 @@ metrics:
   # §4.3 Container resources (USE), every container of the project
   - id: cpu_cores_avg
     source: prometheus
-    query: container_cpu_usage_seconds_total{ {{containers}} }
+    query: sum by ({{service}}) (container_cpu_usage_seconds_total{ {{containers}} })
     unit: cores
     aggregation: rate
     direction: lower
@@ -145,7 +146,7 @@ metrics:
     ref: '#metrics-container'
   - id: cpu_cores_p95
     source: prometheus
-    query: rate(container_cpu_usage_seconds_total{ {{containers}} }[5s])
+    query: sum by ({{service}}) (rate(container_cpu_usage_seconds_total{ {{containers}} }[5s]))
     unit: cores
     aggregation: p95
     direction: lower
@@ -154,7 +155,7 @@ metrics:
     ref: '#metrics-container'
   - id: cpu_throttled_ratio
     source: prometheus
-    query: rate(container_cpu_cfs_throttled_periods_total{ {{containers}} }[5s]) / rate(container_cpu_cfs_periods_total{ {{containers}} }[5s])
+    query: sum by ({{service}}) (rate(container_cpu_cfs_throttled_periods_total{ {{containers}} }[5s])) / sum by ({{service}}) (rate(container_cpu_cfs_periods_total{ {{containers}} }[5s]))
     unit: ratio
     aggregation: avg
     direction: lower
@@ -163,7 +164,7 @@ metrics:
     ref: '#metrics-container'
   - id: mem_working_set_avg
     source: prometheus
-    query: container_memory_working_set_bytes{ {{containers}} }
+    query: sum by ({{service}}) (container_memory_working_set_bytes{ {{containers}} })
     unit: bytes
     aggregation: avg
     direction: lower
@@ -172,7 +173,7 @@ metrics:
     ref: '#metrics-container'
   - id: mem_working_set_max
     source: prometheus
-    query: container_memory_working_set_bytes{ {{containers}} }
+    query: sum by ({{service}}) (container_memory_working_set_bytes{ {{containers}} })
     unit: bytes
     aggregation: max
     direction: lower
@@ -181,7 +182,7 @@ metrics:
     ref: '#metrics-container'
   - id: mem_limit_ratio_max
     source: prometheus
-    query: container_memory_working_set_bytes{ {{containers}} } / (container_spec_memory_limit_bytes{ {{containers}} } > 0)
+    query: sum by ({{service}}) (container_memory_working_set_bytes{ {{containers}} }) / sum by ({{service}}) (container_spec_memory_limit_bytes{ {{containers}} } > 0)
     unit: ratio
     aggregation: max
     direction: lower
@@ -190,7 +191,7 @@ metrics:
     ref: '#metrics-container'
   - id: oom_events
     source: prometheus
-    query: container_oom_events_total{ {{containers}} }
+    query: sum by ({{service}}) (container_oom_events_total{ {{containers}} })
     unit: count
     aggregation: delta
     direction: lower
@@ -199,7 +200,7 @@ metrics:
     ref: '#metrics-container'
   - id: net_rx_bps
     source: prometheus
-    query: container_network_receive_bytes_total{ {{containers}} }
+    query: sum by ({{service}}) (container_network_receive_bytes_total{ {{containers}} })
     unit: bytes/s
     aggregation: rate
     direction: neutral
@@ -208,7 +209,7 @@ metrics:
     ref: '#metrics-container'
   - id: net_tx_bps
     source: prometheus
-    query: container_network_transmit_bytes_total{ {{containers}} }
+    query: sum by ({{service}}) (container_network_transmit_bytes_total{ {{containers}} })
     unit: bytes/s
     aggregation: rate
     direction: neutral
@@ -217,7 +218,7 @@ metrics:
     ref: '#metrics-container'
   - id: blkio_read_bps
     source: prometheus
-    query: container_fs_reads_bytes_total{ {{containers}} }
+    query: sum by ({{service}}) (container_fs_reads_bytes_total{ {{containers}} })
     unit: bytes/s
     aggregation: rate
     direction: lower
@@ -226,7 +227,7 @@ metrics:
     ref: '#metrics-container'
   - id: blkio_write_bps
     source: prometheus
-    query: container_fs_writes_bytes_total{ {{containers}} }
+    query: sum by ({{service}}) (container_fs_writes_bytes_total{ {{containers}} })
     unit: bytes/s
     aggregation: rate
     direction: lower
