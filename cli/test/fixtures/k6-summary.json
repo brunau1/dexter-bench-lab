@@ -1,0 +1,104 @@
+{
+ "metrics": {
+  "bench_errors{scenario:measure,usecase:job}": {
+   "contains": "default",
+   "type": "rate",
+   "values": {
+    "fails": 100,
+    "passes": 0,
+    "rate": 0
+   }
+  },
+  "bench_errors{scenario:measure,usecase:ping}": {
+   "contains": "default",
+   "type": "rate",
+   "values": {
+    "fails": 100,
+    "passes": 0,
+    "rate": 0
+   }
+  },
+  "dropped_iterations": {
+   "contains": "default",
+   "type": "counter",
+   "values": {
+    "count": 0,
+    "rate": 0
+   }
+  },
+  "dropped_iterations{scenario:measure}": {
+   "contains": "default",
+   "type": "counter",
+   "values": {
+    "count": 0,
+    "rate": 0
+   }
+  },
+  "http_req_duration": {
+   "contains": "time",
+   "type": "trend",
+   "values": {
+    "avg": 0.3084071801242239,
+    "count": 483,
+    "max": 2.507826,
+    "med": 0.260737,
+    "min": 0.108736,
+    "p(90)": 0.5065792,
+    "p(95)": 0.5378864,
+    "p(99)": 0.6925578400000001
+   }
+  },
+  "http_req_duration{scenario:measure,usecase:job}": {
+   "contains": "time",
+   "type": "trend",
+   "values": {
+    "avg": 0.21384592999999996,
+    "count": 100,
+    "max": 0.535418,
+    "med": 0.197481,
+    "min": 0.117746,
+    "p(90)": 0.28358900000000004,
+    "p(95)": 0.33223824999999996,
+    "p(99)": 0.5018500700000003
+   }
+  },
+  "http_req_duration{scenario:measure,usecase:ping}": {
+   "contains": "time",
+   "type": "trend",
+   "values": {
+    "avg": 0.44029817999999993,
+    "count": 100,
+    "max": 0.803052,
+    "med": 0.4204555,
+    "min": 0.31403,
+    "p(90)": 0.5387787,
+    "p(95)": 0.5914463499999999,
+    "p(99)": 0.7051400100000005
+   }
+  },
+  "http_reqs": {
+   "contains": "default",
+   "type": "counter",
+   "values": {
+    "count": 483,
+    "rate": 60.366994046244976
+   }
+  },
+  "http_reqs{scenario:measure,usecase:job}": {
+   "contains": "default",
+   "type": "counter",
+   "values": {
+    "count": 100,
+    "rate": 12.498342452638711
+   }
+  },
+  "http_reqs{scenario:measure,usecase:ping}": {
+   "contains": "default",
+   "type": "counter",
+   "values": {
+    "count": 100,
+    "rate": 12.498342452638711
+   }
+  }
+ }
+}
