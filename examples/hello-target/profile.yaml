@@ -1,0 +1,35 @@
+# Quick start profile: both scenarios at two laptop-sized scales.
+schemaVersion: 1
+seed: 42
+repetitions: 3
+timings:
+  warmup: 5s
+  duration: 15s
+  cooldown: 3s
+loadGenerator:
+  cpus: 1
+  memory: 512m
+  preAllocatedVUs: 10
+  maxVUs: 100
+scenarios:
+  - name: crud
+    script: scenarios/crud.js
+    usecases: [read-item, create-item]
+  - name: async-jobs
+    script: scenarios/async-jobs.js
+    usecases: [submit-job]
+    callbacks: true
+scales:
+  tiny: { crud: 20, async-jobs: 10 }
+  small: { crud: 50, async-jobs: 25 }
+slo:
+  latency_p99_ms: 200
+  error_rate: 0.001
+  e2e_p99_ms: 500
+capacity:
+  scenario: crud
+  start: 50
+  factor: 2
+  max: 1600
+  warmup: 5s
+  stepDuration: 15s

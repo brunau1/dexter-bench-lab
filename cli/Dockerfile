@@ -23,6 +23,20 @@ COPY templates /opt/dexter-bench-lab/templates
 COPY docs /opt/dexter-bench-lab/docs
 RUN npx vitest run
 
+# End-to-end suite: the CLI source + vitest + Docker CLI, run by scripts/e2e.sh against examples/hello-target.
+FROM build AS e2e
+RUN apk add --no-cache git
+COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
+COPY cli/vitest.config.ts cli/vitest.e2e.config.ts ./
+COPY cli/test ./test
+COPY core /opt/dexter-bench-lab/core
+COPY templates /opt/dexter-bench-lab/templates
+ENV BENCH_KIT_DIR=/opt/dexter-bench-lab
+# the suite runs as the host user; vite writes its bundled config and cache next to the sources
+RUN chmod -R a+rwX /opt/dexter-bench-lab/cli
+ENTRYPOINT ["node", "/opt/dexter-bench-lab/cli/node_modules/vitest/vitest.mjs", "run", "--config", "/opt/dexter-bench-lab/cli/vitest.e2e.config.ts"]
+
 FROM ${NODE_IMAGE} AS runtime
 # git records the commit of the target under test (BR-12)
 RUN apk add --no-cache git

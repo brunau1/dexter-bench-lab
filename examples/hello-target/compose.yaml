@@ -1,0 +1,62 @@
+# hello-target: the kit's self-test system. Follows the target rules (templates/target/compose.yaml):
+# no ports, default network only, no resource limits (they come from target.yaml).
+x-app: &app
+  image: ${APP_IMAGE:-hello-target-app:local}
+  build: ./app
+  environment: &app-env
+    MONGO_URL: mongodb://mongo:27017
+    REDIS_URL: redis://redis:6379
+    CALLBACK_URL: http://sink:9000/callback/jobs
+    EXTRA_DELAY_MS: ${EXTRA_DELAY_MS:-0}
+
+services:
+  api:
+    <<: *app
+    environment:
+      <<: *app-env
+      ROLE: api
+    depends_on:
+      mongo: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
+      interval: 1s
+      retries: 60
+
+  worker:
+    <<: *app
+    environment:
+      <<: *app-env
+      ROLE: worker
+    depends_on:
+      mongo: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  mongo:
+    image: mongo:8.0.32@sha256:d0d926f94df099bff534b7ee5b5986458131a22489dfff8664509af0c1e2ca9c
+    command: ["--quiet", "--wiredTigerCacheSizeGB", "0.25"]
+    volumes: [mongo-data:/data/db]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 1s
+      retries: 60
+
+  redis:
+    image: redis:8.8.3-alpine@sha256:0b2b77d3ea5078274795e3177cdbdada8b96316684a38911d528534ed679b5ec
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      retries: 60
+
+  seed:
+    <<: *app
+    profiles: [seed]
+    environment:
+      <<: *app-env
+      ROLE: seed
+    depends_on:
+      mongo: { condition: service_healthy }
+
+volumes:
+  mongo-data:

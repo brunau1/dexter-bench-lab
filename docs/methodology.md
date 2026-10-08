@@ -212,6 +212,8 @@ Recalibrate after any change to the host or the kit version.
 
 Requiring the interval, the test and the noise floor together is deliberately conservative: a false "we gained 15%" is worse than a missed small gain.
 
+**Many metrics, many tests.** A comparison tests every metric of every container and dependency (often a hundred or more). At α = 0.05 some of them will pass the test by chance even when nothing changed. The noise floor, measured by an A/A calibration on the same host class, is the main guard: chance differences rarely exceed it. Two habits keep conclusions honest: decide **before** the run which few metrics answer the question (for a cost change, typically `cpu_seconds_per_1k_req`, `sut_memory_peak` and the latency percentiles), and treat an isolated verdict on an unrelated metric as a lead to investigate, not a result.
+
 ### 5.5 What small samples can and can't show {#small-n}
 With 5 repetitions per side:
 - the smallest exact two-sided Mann-Whitney p-value is 2 / 252 ≈ 0.0079, so significance is reachable, but only when the two sides barely overlap;
@@ -289,6 +291,7 @@ What the kit can't guarantee, and what to do about it:
 - **macOS and Windows.** Docker runs inside a virtual machine. Limits, CPU accounting and host checks describe that VM, not the physical machine. Results are valid relative to the same VM configuration only.
 - **Collector precision.** The container collector samples once per second; very short bursts are averaged. The MongoDB exporter can't answer within a 1 s scrape timeout, so MongoDB internals are sampled every 2 s. The fallback collector (when cAdvisor can't read the host's cgroup layout) covers CPU, memory, network and disk only.
 - **Small samples.** See [§5.5](#small-n).
+- **Multiple comparisons.** Verdicts are per metric, without a family-wide correction; see [§5.4](#verdicts).
 - **Not measured:** client-side rendering, real network paths, third-party services (they are simulated), long-term effects beyond the measurement window (memory leaks over hours, data growth over months).
 
 ---
@@ -300,7 +303,7 @@ A domain project provides only the **what**; this document and the kit provide t
 | File | What the domain provides |
 |------|--------------------------|
 | `target.yaml` | SUT services with CPU and memory limits; dependencies and their types (to enable exporters); simulators of external systems; the seed command; the callback id path, if callbacks are used. |
-| `compose.yaml` | How to run the SUT, its dependencies and simulators, without ports and without host-specific paths. |
+| `compose.yaml` | How to run the SUT, its dependencies and simulators: no published ports, default network only, no resource limits (the kit sets them from `target.yaml`), an explicit `image:` on built services. |
 | `profile.yaml` | Scenarios (one k6 script each, tagged by use case), scales, SLOs, timings, repetitions, variants. |
 | `scenarios/*.js` | k6 scripts using the kit's helper library, which enforces the open model and use-case tagging. |
 | `seed/` | A deterministic data generator: same seed, same data, and it prints the dataset fingerprint. |

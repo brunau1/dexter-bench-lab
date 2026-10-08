@@ -1,0 +1,15 @@
+# Self-test target of the kit: an API with a Redis cache over MongoDB, plus an async worker that
+# calls back through the sink. Limits are sized for a laptop smoke run.
+schemaVersion: 1
+name: hello-target
+compose: [compose.yaml]
+services:
+  - { name: api, cpus: 0.5, memory: 256m }
+  - { name: worker, cpus: 0.25, memory: 128m }
+dependencies:
+  - { name: mongo, type: mongodb, cpus: 0.5, memory: 512m }
+  - { name: redis, type: redis, cpus: 0.25, memory: 128m }
+seed:
+  service: seed
+callbacks:
+  idPath: data.id

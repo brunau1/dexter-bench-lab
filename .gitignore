@@ -1,6 +1,7 @@
 node_modules/
 cli/dist/
 results/
+results-e2e/
 comparisons/
 calibration/
 *.log

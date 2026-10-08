@@ -17,8 +17,10 @@ export function formatValue(value: number | null | undefined, unit: string): str
       return value.toFixed(3);
     case 'count':
       return Number.isInteger(value) ? String(value) : value.toFixed(1);
-    default:
-      return Math.abs(value) >= 100 ? value.toFixed(1) : Math.abs(value) >= 1 ? value.toFixed(2) : value.toPrecision(3);
+    default: {
+      const number = Math.abs(value) >= 100 ? value.toFixed(1) : Math.abs(value) >= 1 ? value.toFixed(2) : value.toPrecision(3);
+      return `${number} ${unit}`;
+    }
   }
 }
 

@@ -1,6 +1,8 @@
 # The SUT, its dependencies, simulators and the seed job.
-# Rules: no `ports`, no host-specific paths, no `cpus`/`mem_limit`/`cpuset` (the kit sets them from
-# target.yaml), healthchecks on every long-running service so the kit can wait for readiness.
+# Rules (checked by bench run): no `ports`, no `network_mode`, no networks other than the default,
+# no `cpus`/`mem_limit`/`cpuset`/`deploy.resources` (the kit sets them from target.yaml), an explicit
+# `image:` on every built service, and no service named k6, sink, prometheus or cadvisor.
+# Add healthchecks to long-running services so the kit can wait for readiness.
 services:
   api:
     image: ${APP_IMAGE:-my-app:latest}  # variants override APP_IMAGE
@@ -31,6 +33,7 @@ services:
       retries: 30
 
   seed:
+    image: my-system-seed:local       # built services need an explicit image tag: bench prepare builds it once
     build: ./seed
     profiles: [seed]                  # only started by the kit, once per repetition
     environment:

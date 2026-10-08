@@ -1,0 +1,25 @@
+# A/B profile: the same build with and without an injected 20 ms delay on reads. Interleaved
+# (BR-16); 4 repetitions so the exact Mann-Whitney test can reach p < 0.05 (§5.5).
+schemaVersion: 1
+seed: 42
+repetitions: 4
+timings:
+  warmup: 5s
+  duration: 15s
+  cooldown: 3s
+loadGenerator:
+  cpus: 1
+  memory: 512m
+  preAllocatedVUs: 10
+  maxVUs: 100
+variants:
+  - name: base
+    env: {}
+  - name: delayed
+    env: { EXTRA_DELAY_MS: "20" }
+scenarios:
+  - name: crud
+    script: scenarios/crud.js
+    usecases: [read-item, create-item]
+scales:
+  tiny: { crud: 20 }

@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { hostname } from 'node:os';
+import { relative, resolve } from 'node:path';
 import { DockerCli } from '../docker/runner.js';
 import { realHostFiles } from '../host/probe.js';
 import { DockerStatsSampler } from '../metrics/docker-stats.js';
@@ -15,11 +16,15 @@ export interface RunCommandOptions {
 
 export async function runCommandWith(options: RunCommandOptions, variants?: { name: string; env: Record<string, string> }[]) {
   if (!options.target || !options.profile) throw new Error('bench run needs --target and --profile');
+  const outDir = resolve(options.out ?? 'results');
+  if (existsSync('/.dockerenv') && relative(process.cwd(), outDir).startsWith('..')) {
+    throw new Error(`--out ${outDir} is outside the current directory; only the current directory is mounted into the CLI container`);
+  }
   const result = await executeRun(
     {
       targetFile: options.target,
       profileFile: options.profile,
-      outDir: options.out ?? 'results',
+      outDir,
       mode: options.capacity ? 'capacity' : 'matrix',
       rawSamples: options['raw-samples'] ?? false,
       kitVersion: process.env.BENCH_KIT_VERSION ?? 'unknown',

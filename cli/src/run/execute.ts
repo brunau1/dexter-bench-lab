@@ -255,7 +255,8 @@ async function runRepetition(ctx: RunContext, deps: RunDeps, step: Step, timings
     (p) => ctx.collector === 'cadvisor' || !(p.metric.scope === 'container' || p.metric.scope === 'sut'),
   );
   const collected = await collectPrometheus(ctx.prometheus, planned, window);
-  samples.push(...collected.samples);
+  // the seed job ran before the window; cAdvisor may still report its exited container
+  samples.push(...collected.samples.filter((s) => s.subject !== target.seed.service));
   const raw: RawSeries[] = collected.raw;
 
   if (sampler) {
@@ -363,13 +364,13 @@ async function runCapacity(ctx: RunContext, deps: RunDeps, rawSamples: boolean):
   return results;
 }
 
-async function cleanup(ctx: RunContext, deps: RunDeps): Promise<void> {
-  const attempt = async (args: string[]) => {
-    const result = await deps.runner.run(args).catch((error: unknown) => ({ code: 1, stdout: '', stderr: String(error) }));
+async function cleanup(ctx: RunContext, deps: RunDeps, obsEnv: Record<string, string>): Promise<void> {
+  const attempt = async (args: string[], env?: Record<string, string>) => {
+    const result = await deps.runner.run(args, env ? { env } : undefined).catch((error: unknown) => ({ code: 1, stdout: '', stderr: String(error) }));
     if (result.code !== 0) deps.log(`cleanup: docker ${args.slice(0, 6).join(' ')} … failed: ${result.stderr.trim()}`);
   };
   await attempt([...composeArgs(ctx.sutProject, ctx.target.dir, ctx.sutFiles), 'down', '-v', '--remove-orphans', '--timeout', '10']);
-  await attempt([...composeArgs(ctx.obsProject, ctx.runDir, ctx.obsFiles), 'down', '-v', '--remove-orphans', '--timeout', '10']);
+  await attempt([...composeArgs(ctx.obsProject, ctx.runDir, ctx.obsFiles), 'down', '-v', '--remove-orphans', '--timeout', '10'], obsEnv);
   if (deps.selfContainer) await attempt(['network', 'disconnect', '--force', ctx.network, deps.selfContainer]);
   await attempt(['network', 'rm', ctx.network]);
 }
@@ -509,7 +510,7 @@ export async function executeRun(options: RunOptions, deps: RunDeps): Promise<{ 
     manifest.finishedAt = new Date(deps.now()).toISOString();
     writeManifest(runDir, manifest);
     deps.log(`run ${runId}: tearing down`);
-    await cleanup(ctx, deps);
+    await cleanup(ctx, deps, obsEnv);
   }
   const summary = writeSummary(runDir, manifest, catalog);
   writeFileSync(join(runDir, REPORT_FILE), renderReport(runDir, manifest, summary));
