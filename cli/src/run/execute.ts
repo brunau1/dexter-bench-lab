@@ -4,7 +4,8 @@ import { join, relative, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { kitPath, loadCatalog, loadProfile, loadTarget, loadVersions, type LoadedProfile, type LoadedTarget } from '../config/load.js';
 import type { MetricDef, Versions } from '../config/schema.js';
-import { docker, type DockerRunner } from '../docker/runner.js';
+import { docker, interruptible, type DockerRunner } from '../docker/runner.js';
+import { InterruptedError, throwIfInterrupted } from '../signals.js';
 import { evaluateHost, type DoctorReport } from '../host/classify.js';
 import { benchServices, type BenchService } from '../host/demand.js';
 import { probeHost, type HostFiles } from '../host/probe.js';
@@ -13,7 +14,7 @@ import { sinkSamples, type SinkStats } from '../k6/sink.js';
 import { droppedIterations, k6Samples, type K6Summary } from '../k6/summary.js';
 import { aggregate } from '../metrics/aggregate.js';
 import { planQueries, PROJECT_LABEL } from '../metrics/catalog.js';
-import { aggregateStats, DockerStatsSampler, FALLBACK_METRICS } from '../metrics/docker-stats.js';
+import { aggregateStats, DockerStatsSampler, FALLBACK_METRICS, type StatsPoint } from '../metrics/docker-stats.js';
 import { exportersFor, prometheusConfig } from '../metrics/observers.js';
 import { collectPrometheus, PrometheusClient, type RawSeries } from '../metrics/prometheus.js';
 import type { MetricSample } from '../metrics/sample.js';
@@ -60,6 +61,8 @@ export interface RunDeps {
   now(): number;
   log(message: string): void;
   statsSampler(): Pick<DockerStatsSampler, 'start' | 'stop'>;
+  /** Aborted on SIGINT/SIGTERM: the run stops at once and still tears everything down. */
+  signal?: AbortSignal;
 }
 
 interface RunContext {
@@ -80,6 +83,8 @@ interface RunContext {
   manifest: Manifest;
   prometheus: PrometheusClient;
   collector: 'cadvisor' | 'docker-stats';
+  /** Environment of the last variant started, needed to interpolate the target compose files at teardown. */
+  lastVariantEnv: Record<string, string>;
 }
 
 function runIdFor(now: number, target: string): string {
@@ -175,6 +180,8 @@ async function runRepetition(ctx: RunContext, deps: RunDeps, step: Step, timings
   const { target, profile } = ctx;
   const variant = profile.variants.find((v) => v.name === step.variant)!;
   const scenario = profile.scenarios.find((s) => s.name === step.scenario)!;
+  throwIfInterrupted(deps.signal);
+  ctx.lastVariantEnv = variant.env;
   const dir = stepDir(step);
   const repDir = join(ctx.runDir, dir);
   mkdirSync(repDir, { recursive: true });
@@ -203,49 +210,57 @@ async function runRepetition(ctx: RunContext, deps: RunDeps, step: Step, timings
   }
 
   const sampler = ctx.collector === 'docker-stats' ? deps.statsSampler() : null;
-  sampler?.start();
   const summaryPath = join(repDir, 'k6.json');
   const k6Container = `${ctx.sutProject}-k6-${String(step.rep)}`;
   const env = k6Env({ profile, usecases: scenario.usecases, rate: step.rate, summaryPath, warmupMs: timings.warmupMs, durationMs: timings.durationMs });
   const script = `/scripts/${relative(profile.dir, profile.scripts[scenario.name]!)}`;
   deps.log(`[${step.scenario}/${step.scale}/${step.variant}] rep ${step.rep}: load ${step.rate} it/s`);
-  const k6 = await deps.runner.run(
-    [
-      ...sut,
-      'run',
-      '--name',
-      k6Container,
-      ...(sampler ? [] : ['--rm']),
-      '--pull',
-      'never',
-      '--no-deps',
-      ...envFlags(env),
-      'k6',
-      'run',
-      '--quiet',
-      ...(rawSamples ? ['--out', `csv=${join(repDir, 'requests.csv.gz')}`] : []),
-      script,
-    ],
-    opts,
-  );
-  if (!existsSync(summaryPath)) {
-    await sampler?.stop();
-    throw new Error(`k6 produced no summary (exit ${k6.code}): ${k6.stderr.trim().slice(-2000)}`);
-  }
-  const summary = JSON.parse(readFileSync(summaryPath, 'utf8')) as K6Summary;
-  const measureStart = summary.metrics.bench_measure_start_ms?.values.value;
-  if (measureStart === undefined) throw new Error('k6 summary has no bench_measure_start_ms: scenarios must run their requests inside bench.usecase()');
-  const window: Window = measurementWindow(measureStart, timings.durationMs);
-  record.window = window;
+  let k6: Awaited<ReturnType<DockerRunner['run']>>;
+  let summary: K6Summary;
+  let window: Window;
+  let points: Map<string, StatsPoint[]> | null = null;
+  sampler?.start();
+  try {
+    k6 = await deps.runner.run(
+      [
+        ...sut,
+        'run',
+        '--name',
+        k6Container,
+        ...(sampler ? [] : ['--rm']),
+        '--pull',
+        'never',
+        '--no-deps',
+        ...envFlags(env),
+        'k6',
+        'run',
+        '--quiet',
+        ...(rawSamples ? ['--out', `csv=${join(repDir, 'requests.csv.gz')}`] : []),
+        script,
+      ],
+      opts,
+    );
+    if (!existsSync(summaryPath)) throw new Error(`k6 produced no summary (exit ${k6.code}): ${k6.stderr.trim().slice(-2000)}`);
+    summary = JSON.parse(readFileSync(summaryPath, 'utf8')) as K6Summary;
+    const measureStart = summary.metrics.bench_measure_start_ms?.values.value;
+    if (measureStart === undefined) throw new Error('k6 summary has no bench_measure_start_ms: scenarios must run their requests inside bench.usecase()');
+    window = measurementWindow(measureStart, timings.durationMs);
+    record.window = window;
 
-  // Async work may still complete during the cool-down; scrapes lag up to one interval.
-  const waitUntil = window.end * 1000 + Math.max(timings.cooldownMs, SCRAPE_LAG_MS);
-  if (deps.now() < waitUntil) await deps.sleep(waitUntil - deps.now());
+    // Async work may still complete during the cool-down; scrapes lag up to one interval.
+    const waitUntil = window.end * 1000 + Math.max(timings.cooldownMs, SCRAPE_LAG_MS);
+    if (deps.now() < waitUntil) await deps.sleep(waitUntil - deps.now());
+  } finally {
+    // the fallback sampler must never outlive the repetition, whatever failed above
+    if (sampler) points = await sampler.stop();
+  }
 
   const measureSeconds = timings.durationMs / 1000;
   const samples: MetricSample[] = k6Samples(summary, ctx.catalog, scenario.usecases, measureSeconds);
   if (scenario.callbacks) {
-    const stats = (await (await deps.fetch(`${SINK_URL}/stats`)).json()) as SinkStats;
+    const response = await deps.fetch(`${SINK_URL}/stats`);
+    if (!response.ok) throw new Error(`sink ${SINK_URL}/stats answered HTTP ${response.status}`);
+    const stats = (await response.json()) as SinkStats;
     samples.push(...sinkSamples(stats, ctx.catalog, scenario.name));
   }
 
@@ -259,8 +274,7 @@ async function runRepetition(ctx: RunContext, deps: RunDeps, step: Step, timings
   samples.push(...collected.samples.filter((s) => s.subject !== target.seed.service));
   const raw: RawSeries[] = collected.raw;
 
-  if (sampler) {
-    const points = await sampler.stop();
+  if (points) {
     const containers = await docker(deps.runner, ['ps', '-a', '--no-trunc', '--format', '{{.ID}}|{{.Label "com.docker.compose.service"}}|{{.Label "com.docker.compose.project"}}']);
     const services = new Map<string, string>();
     for (const line of containers.trim().split('\n')) {
@@ -369,14 +383,16 @@ async function cleanup(ctx: RunContext, deps: RunDeps, obsEnv: Record<string, st
     const result = await deps.runner.run(args, env ? { env } : undefined).catch((error: unknown) => ({ code: 1, stdout: '', stderr: String(error) }));
     if (result.code !== 0) deps.log(`cleanup: docker ${args.slice(0, 6).join(' ')} … failed: ${result.stderr.trim()}`);
   };
-  await attempt([...composeArgs(ctx.sutProject, ctx.target.dir, ctx.sutFiles), 'down', '-v', '--remove-orphans', '--timeout', '10']);
+  await attempt([...composeArgs(ctx.sutProject, ctx.target.dir, ctx.sutFiles), 'down', '-v', '--remove-orphans', '--timeout', '10'], ctx.lastVariantEnv);
   await attempt([...composeArgs(ctx.obsProject, ctx.runDir, ctx.obsFiles), 'down', '-v', '--remove-orphans', '--timeout', '10'], obsEnv);
   if (deps.selfContainer) await attempt(['network', 'disconnect', '--force', ctx.network, deps.selfContainer]);
   await attempt(['network', 'rm', ctx.network]);
 }
 
 /** `bench run`: the whole lifecycle of a run, always tearing everything down at the end. */
-export async function executeRun(options: RunOptions, deps: RunDeps): Promise<{ runDir: string; manifest: Manifest }> {
+export async function executeRun(options: RunOptions, rawDeps: RunDeps): Promise<{ runDir: string; manifest: Manifest }> {
+  // every step is interruptible; the teardown below uses the raw runner so it always completes
+  const deps: RunDeps = { ...rawDeps, runner: interruptible(rawDeps.runner, rawDeps.signal) };
   if (!deps.selfContainer) throw new Error('bench run must run inside the CLI container (use the ./bench wrapper) to reach the run network');
   const target = loadTarget(options.targetFile);
   const loaded = loadProfile(options.profileFile);
@@ -388,12 +404,22 @@ export async function executeRun(options: RunOptions, deps: RunDeps): Promise<{ 
   const extension = join(target.dir, 'catalog.ext.yaml');
   const catalog = loadCatalog(kitPath('core', 'metrics', 'catalog.yaml'), existsSync(extension) ? extension : undefined);
   const versions = loadVersions(kitPath('core', 'versions.yaml'));
+  // BR-2: every measured span must outlast the longest look-back of the catalogue
+  const longestRange = Math.max(0, ...catalog.map((m) => m.range ?? 0));
+  const spans: [string, number][] = [['timings.duration', profile.timings.duration]];
+  if (options.mode === 'capacity') spans.push(['capacity.stepDuration', profile.capacity!.stepDuration]);
+  for (const [field, ms] of spans) {
+    if (ms <= longestRange) throw new Error(`${field} (${ms / 1000}s) must be longer than the longest metric range (${longestRange / 1000}s, BR-2)`);
+  }
   const services = benchServices(target, profile);
   const report = evaluateHost(await probeHost(deps.runner, deps.hostFiles), services);
 
   const runId = runIdFor(deps.now(), target.name);
   const runDir = resolve(options.outDir, runId);
   const network = `${runId}-net`;
+  mkdirSync(resolve(options.outDir), { recursive: true });
+  // write-once: two runs started in the same second must not share a directory (BR-18)
+  mkdirSync(runDir);
   mkdirSync(join(runDir, 'kit', 'k6'), { recursive: true });
 
   const targetImages = await inspectTargetCompose(deps, target, profile);
@@ -472,8 +498,9 @@ export async function executeRun(options: RunOptions, deps: RunDeps): Promise<{ 
     obsFiles: [kitPath('core', 'observers', 'compose.yaml'), obsOverridePath],
     sinkImage,
     manifest,
-    prometheus: new PrometheusClient(PROMETHEUS_URL, deps.fetch),
+    prometheus: new PrometheusClient(PROMETHEUS_URL, deps.fetch, { now: deps.now, sleep: deps.sleep }),
     collector: 'cadvisor',
+    lastVariantEnv: profile.variants[0]!.env,
   };
 
   const obsEnv = {
@@ -504,13 +531,13 @@ export async function executeRun(options: RunOptions, deps: RunDeps): Promise<{ 
     manifest.status = 'complete';
   } catch (error) {
     manifest.status = 'failed';
-    manifest.error = (error as Error).message;
+    manifest.error = error instanceof InterruptedError ? 'interrupted by a signal before completion' : (error as Error).message;
     throw error;
   } finally {
     manifest.finishedAt = new Date(deps.now()).toISOString();
     writeManifest(runDir, manifest);
     deps.log(`run ${runId}: tearing down`);
-    await cleanup(ctx, deps, obsEnv);
+    await cleanup(ctx, rawDeps, obsEnv);
   }
   const summary = writeSummary(runDir, manifest, catalog);
   writeFileSync(join(runDir, REPORT_FILE), renderReport(runDir, manifest, summary));

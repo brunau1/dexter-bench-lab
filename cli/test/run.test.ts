@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parse, stringify } from 'yaml';
-import type { CommandResult, DockerRunner } from '../src/docker/runner.js';
+import type { CommandResult, DockerRunner, RunOptions } from '../src/docker/runner.js';
+import { InterruptedError } from '../src/signals.js';
 import type { CpuPlan } from '../src/host/classify.js';
 import type { BenchService } from '../src/host/demand.js';
 import type { HostFiles } from '../src/host/probe.js';
@@ -189,6 +190,9 @@ interface FakeOptions {
 
 class FakeDocker implements DockerRunner {
   readonly calls: string[][] = [];
+  readonly envs: (Record<string, string> | undefined)[] = [];
+  /** Called when k6 starts, e.g. to simulate Ctrl-C during the load. */
+  onK6?: () => void;
   private seedCall = 0;
   private k6Call = 0;
 
@@ -197,8 +201,9 @@ class FakeDocker implements DockerRunner {
     private readonly options: FakeOptions,
   ) {}
 
-  async run(args: string[]): Promise<CommandResult> {
+  async run(args: string[], options?: RunOptions): Promise<CommandResult> {
     this.calls.push(args);
+    this.envs.push(options?.env);
     const ok = (stdout = ''): CommandResult => ({ code: 0, stdout, stderr: '' });
     if (args[0] === 'info') return ok(JSON.stringify({ ServerVersion: '29.4.3', DockerRootDir: '/var/lib/docker', OperatingSystem: 'Test', Architecture: 'x86_64' }));
     if (args[0] === 'compose' && args[1] === 'version') return ok('5.1.3');
@@ -216,6 +221,7 @@ class FakeDocker implements DockerRunner {
       return ok(`seeded\nBENCH_DATASET_SHA256=${hashes[Math.min(this.seedCall++, hashes.length - 1)]}\n`);
     }
     if (runAt >= 0 && args.includes('k6')) {
+      this.onK6?.();
       const env = Object.fromEntries(args.filter((_, i) => args[i - 1] === '-e').map((e) => e.split('=') as [string, string]));
       const call = this.k6Call++;
       const measureStart = this.clock.t + Number(env.BENCH_WARMUP_MS);
@@ -297,7 +303,7 @@ function project(profileExtra: Record<string, unknown> = {}): { target: string; 
   return { target: join(dir, 'target.yaml'), profile: join(dir, 'profile.yaml'), out: join(dir, 'results') };
 }
 
-function harness(options: FakeOptions = {}) {
+function harness(options: FakeOptions = {}, signal?: AbortSignal) {
   const clock = { t: Date.UTC(2026, 9, 8, 12, 0, 0) };
   const runner = new FakeDocker(clock, options);
   const logs: string[] = [];
@@ -313,6 +319,7 @@ function harness(options: FakeOptions = {}) {
     now: () => clock.t,
     log: (m) => logs.push(m),
     statsSampler: () => ({ start: () => undefined, stop: async () => new Map() }),
+    ...(signal ? { signal } : {}),
   };
   return { runner, deps, logs };
 }
@@ -398,6 +405,42 @@ describe('run lifecycle (fake Docker)', () => {
     expect(() => readManifest(join(paths.out, runId))).toThrow(/failed.*BR-12/);
   });
 
+  it('stops at once on interruption and still tears everything down (BR-12)', async () => {
+    const paths = project();
+    const controller = new AbortController();
+    const { runner, deps } = harness({}, controller.signal);
+    runner.onK6 = () => controller.abort();
+    await expect(run(paths, deps)).rejects.toBeInstanceOf(InterruptedError);
+    expect(runner.composeVerbs()).toEqual(['up', 'down', 'up', 'run seed', 'run k6', 'down', 'down']);
+    expect(runner.calls.some((a) => a[0] === 'network' && a[1] === 'rm')).toBe(true);
+    const manifest = readManifest(join(paths.out, readdirSync(paths.out)[0]!), { allowIncomplete: true });
+    expect(manifest).toMatchObject({ status: 'failed', error: 'interrupted by a signal before completion' });
+  });
+
+  it('tears the target down with the environment of its variant', async () => {
+    const paths = project({ variants: [{ name: 'v', env: { APP_IMAGE: 'demo-api:2' } }] });
+    const { runner, deps } = harness();
+    await run(paths, deps);
+    const teardown = runner.calls.findLastIndex((args) => args.includes('down') && args[args.indexOf('-p') + 1]!.endsWith('-sut'));
+    expect(teardown).toBeGreaterThan(0);
+    expect(runner.envs[teardown]).toEqual({ APP_IMAGE: 'demo-api:2' });
+  });
+
+  it('refuses a second run in the same directory (write-once, BR-18)', async () => {
+    const paths = project();
+    const first = harness();
+    await run(paths, first.deps);
+    const second = harness(); // same fake clock start → same run id
+    await expect(run(paths, second.deps)).rejects.toThrow(/EEXIST/);
+  });
+
+  it('refuses a measurement shorter than the longest metric range before starting anything (BR-2)', async () => {
+    const paths = project({ timings: { warmup: '5s', duration: '5s', cooldown: '1s' } });
+    const { runner, deps } = harness();
+    await expect(run(paths, deps)).rejects.toThrow('timings.duration (5s) must be longer than the longest metric range (5s');
+    expect(runner.calls.some((a) => a[0] === 'compose' || a[0] === 'network')).toBe(false);
+  });
+
   it('writes a manifest with every reproducibility field (BR-12)', async () => {
     const paths = project();
     const { deps } = harness();
@@ -411,7 +454,7 @@ describe('run lifecycle (fake Docker)', () => {
   });
 
   it('finds the knee at the last step meeting the SLOs (BR-17)', async () => {
-    const paths = project({ slo: { latency_p99_ms: 100 }, capacity: { scenario: 'crud', start: 10, factor: 2, max: 200, warmup: '2s', stepDuration: '5s' } });
+    const paths = project({ slo: { latency_p99_ms: 100 }, capacity: { scenario: 'crud', start: 10, factor: 2, max: 200, warmup: '2s', stepDuration: '10s' } });
     const { deps } = harness({ p99: [20, 40, 80, 150, 300] });
     const { runDir, manifest } = await run(paths, deps, 'capacity');
     const capacity = JSON.parse(readFileSync(join(runDir, 'capacity.json'), 'utf8')) as { knee: number; lowerBound: boolean; steps: { rate: number }[] }[];
@@ -422,7 +465,7 @@ describe('run lifecycle (fake Docker)', () => {
   });
 
   it('stops the capacity search with a lower bound when the load generator saturates (BR-17, BR-1)', async () => {
-    const paths = project({ slo: { latency_p99_ms: 100 }, capacity: { scenario: 'crud', start: 10, factor: 2, max: 200, warmup: '2s', stepDuration: '5s' } });
+    const paths = project({ slo: { latency_p99_ms: 100 }, capacity: { scenario: 'crud', start: 10, factor: 2, max: 200, warmup: '2s', stepDuration: '10s' } });
     const { deps } = harness({ dropped: [0, 0, 5] });
     const { runDir } = await run(paths, deps, 'capacity');
     const capacity = JSON.parse(readFileSync(join(runDir, 'capacity.json'), 'utf8')) as { knee: number; lowerBound: boolean }[];

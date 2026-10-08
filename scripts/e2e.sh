@@ -11,7 +11,7 @@ IMAGE=dexter-bench-e2e:local
 docker build --quiet --target e2e -t "$IMAGE" -f "$KIT_DIR/cli/Dockerfile" "$KIT_DIR" >/dev/null
 SOCKET_GID=$(stat -c %g "$SOCKET" 2>/dev/null || stat -f %g "$SOCKET")
 
-exec docker run --rm \
+exec docker run --rm --init \
   --user "$(id -u):$(id -g)" \
   --group-add "$SOCKET_GID" \
   -e HOME=/tmp \

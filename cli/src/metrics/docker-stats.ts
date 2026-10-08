@@ -119,6 +119,8 @@ export class DockerStatsSampler {
   private readonly points = new Map<string, StatsPoint[]>();
   private child: ChildProcess | null = null;
   private buffer = '';
+  /** Lines docker printed that could not be parsed; counted, never thrown from the stream listener. */
+  parseErrors = 0;
 
   /** Streams every running container; new containers (e.g. the load generator) appear as they start. */
   start(): void {
@@ -129,7 +131,13 @@ export class DockerStatsSampler {
       this.buffer = lines.pop() ?? '';
       const t = Date.now() / 1000;
       for (const line of lines) {
-        const parsed = parseStatsLine(line, t);
+        let parsed: ReturnType<typeof parseStatsLine>;
+        try {
+          parsed = parseStatsLine(line, t);
+        } catch {
+          this.parseErrors++;
+          continue;
+        }
         if (!parsed) continue;
         const series = this.points.get(parsed.id) ?? [];
         series.push(parsed.point);

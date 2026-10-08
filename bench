@@ -24,7 +24,7 @@ SOCKET_GID=$(stat -c %g "$SOCKET" 2>/dev/null || stat -f %g "$SOCKET")
 if [ -t 0 ] && [ -t 1 ]; then TTY_FLAGS=-it; else TTY_FLAGS=; fi
 
 # shellcheck disable=SC2086
-exec docker run --rm $TTY_FLAGS \
+exec docker run --rm --init $TTY_FLAGS \
   --user "$(id -u):$(id -g)" \
   --group-add "$SOCKET_GID" \
   -e HOME=/tmp \

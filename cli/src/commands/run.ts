@@ -1,10 +1,12 @@
 import { existsSync } from 'node:fs';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { hostname } from 'node:os';
 import { relative, resolve } from 'node:path';
 import { DockerCli } from '../docker/runner.js';
 import { realHostFiles } from '../host/probe.js';
 import { DockerStatsSampler } from '../metrics/docker-stats.js';
 import { executeRun } from '../run/execute.js';
+import { InterruptedError, shutdown } from '../signals.js';
 
 export interface RunCommandOptions {
   target?: string;
@@ -36,10 +38,13 @@ export async function runCommandWith(options: RunCommandOptions, variants?: { na
       hostFiles: realHostFiles,
       selfContainer: existsSync('/.dockerenv') ? hostname() : null,
       user: `${process.getuid?.() ?? 0}:${process.getgid?.() ?? 0}`,
-      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      sleep: (ms) => sleep(ms, undefined, { signal: shutdown.signal }).catch(() => {
+        throw new InterruptedError();
+      }),
       now: () => Date.now(),
       log: (message) => process.stderr.write(`${message}\n`),
       statsSampler: () => new DockerStatsSampler(),
+      signal: shutdown.signal,
     },
   );
   const { runDir, manifest } = result;
@@ -52,6 +57,12 @@ export async function runCommandWith(options: RunCommandOptions, variants?: { na
 }
 
 export async function runCommand(options: RunCommandOptions): Promise<number> {
-  const { manifest } = await runCommandWith(options);
-  return manifest.valid ? 0 : 3;
+  try {
+    const { manifest } = await runCommandWith(options);
+    return manifest.valid ? 0 : 3;
+  } catch (error) {
+    if (!(error instanceof InterruptedError)) throw error;
+    process.stderr.write('run interrupted: everything was torn down; the run is marked failed\n');
+    return 130;
+  }
 }

@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { InterruptedError } from '../signals.js';
 
 export interface CommandResult {
   code: number;
@@ -7,8 +8,16 @@ export interface CommandResult {
 }
 
 /** Everything the kit does to Docker goes through this interface, so it can be faked in tests. */
+export interface RunOptions {
+  input?: string;
+  env?: Record<string, string>;
+  inheritOutput?: boolean;
+  /** Kills the docker process when aborted (run interruption). */
+  signal?: AbortSignal;
+}
+
 export interface DockerRunner {
-  run(args: string[], options?: { input?: string; env?: Record<string, string>; inheritOutput?: boolean }): Promise<CommandResult>;
+  run(args: string[], options?: RunOptions): Promise<CommandResult>;
 }
 
 export class DockerCommandError extends Error {
@@ -23,10 +32,11 @@ export class DockerCommandError extends Error {
 
 /** Runs the real `docker` binary. Output is buffered unless inheritOutput streams it to the user. */
 export class DockerCli implements DockerRunner {
-  run(args: string[], options: { input?: string; env?: Record<string, string>; inheritOutput?: boolean } = {}): Promise<CommandResult> {
+  run(args: string[], options: RunOptions = {}): Promise<CommandResult> {
     return new Promise((resolve, reject) => {
       const child = spawn('docker', args, {
         env: { ...process.env, ...options.env },
+        ...(options.signal ? { signal: options.signal, killSignal: 'SIGTERM' as const } : {}),
         stdio: [options.input === undefined ? 'ignore' : 'pipe', options.inheritOutput ? 'inherit' : 'pipe', 'pipe'],
       });
       let stdout = '';
@@ -36,11 +46,24 @@ export class DockerCli implements DockerRunner {
         stderr += chunk.toString();
         if (options.inheritOutput) process.stderr.write(chunk);
       });
-      child.on('error', reject);
+      child.on('error', (error) => reject(error.name === 'AbortError' ? new InterruptedError() : error));
       child.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }));
       if (options.input !== undefined) child.stdin?.end(options.input);
     });
   }
+}
+
+/** A runner that stops every command when the signal aborts, and refuses to start new ones. */
+export function interruptible(runner: DockerRunner, signal: AbortSignal | undefined): DockerRunner {
+  if (!signal) return runner;
+  return {
+    run: async (args, options) => {
+      if (signal.aborted) throw new InterruptedError();
+      const result = await runner.run(args, { ...options, signal });
+      if (signal.aborted) throw new InterruptedError();
+      return result;
+    },
+  };
 }
 
 /** Runs a docker command and throws a DockerCommandError when it fails. */
