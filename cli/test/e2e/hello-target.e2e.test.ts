@@ -40,8 +40,8 @@ function samplesOf(dir: string, rep: Manifest['repetitions'][number]): MetricSam
 }
 
 /** Runs `bench compare <dir>:<va> <dir>:<vb>` and reads the JSON it writes. */
-async function compare(dir: string, va: string, vb: string): Promise<Comparison> {
-  expect(await main(['compare', `${dir}:${va}`, `${dir}:${vb}`, '--force-verdicts', '--calibration-dir', CALIBRATION, '--out', COMPARISONS])).toBe(0);
+async function compare(dir: string, va: string, vb: string, calibrationDir = CALIBRATION): Promise<Comparison> {
+  expect(await main(['compare', `${dir}:${va}`, `${dir}:${vb}`, '--force-verdicts', '--calibration-dir', calibrationDir, '--out', COMPARISONS])).toBe(0);
   const runId = basename(dir);
   return JSON.parse(readFileSync(join(COMPARISONS, `${runId}-${va}__${runId}-${vb}.json`), 'utf8')) as Comparison;
 }
@@ -107,11 +107,20 @@ describe('hello-target end to end', () => {
     calibrationRun = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')) as Manifest;
     expect(calibrationRun.repetitions.map((r) => `${r.rep}${r.variant}`).slice(0, 4)).toEqual(['1a1', '1a2', '2a2', '2a1']);
     const calibration = JSON.parse(readFileSync(join(CALIBRATION, `${calibrationRun.host.hostClass.id}.json`), 'utf8')) as Calibration;
-    expect(Object.keys(calibration.floors).length).toBeGreaterThan(50);
+    const floors = Object.values(calibration.floors);
+    expect(floors.length).toBeGreaterThan(50);
+    expect(floors.every((f) => Number.isFinite(f) && f >= 0)).toBe(true);
+    // a stable metric's A/A noise must be far below the 14× effect the sensitivity test injects
+    expect(calibration.floors['crud|tiny|req_rate|read-item|']).toBeLessThan(0.05);
 
-    const aa = await compare(dir, 'a1', 'a2');
-    const decided = aa.entries.filter((e) => ['improved', 'regressed', 'changed-up', 'changed-down'].includes(e.result.verdict));
-    expect(decided.map((e) => `${e.metric}/${e.subject}`)).toEqual([]);
+    // Without a noise floor only the interval and the test guard against chance. With 4 vs 4 repetitions a
+    // metric passes both by chance with probability ≈ 2/70 ≈ 2.9 %, so the share of decided verdicts in an
+    // A/A comparison must stay small (§5.4, multiple comparisons). This can fail, unlike a self-calibrated check.
+    const aa = await compare(dir, 'a1', 'a2', join(OUT, 'no-calibration'));
+    const sut = aa.entries.filter((e) => !e.overhead);
+    const decided = sut.filter((e) => ['improved', 'regressed', 'changed-up', 'changed-down'].includes(e.result.verdict));
+    expect(sut.every((e) => e.result.uncalibrated)).toBe(true);
+    expect(decided.length / sut.length, decided.map((e) => `${e.metric}/${e.subject}${e.key ? `/${e.key}` : ''}`).join(', ')).toBeLessThanOrEqual(0.15);
   });
 
   it('starts every repetition from the same dataset, across runs (BR-3)', () => {
