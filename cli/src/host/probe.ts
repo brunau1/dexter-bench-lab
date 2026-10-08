@@ -21,6 +21,8 @@ export interface HostFacts {
   cgroupVersion: 1 | 2;
   dockerVersion: string;
   composeVersion: string;
+  /** Docker's data root, mounted into cAdvisor. */
+  dockerRootDir: string;
   os: string;
   arch: string;
 }
@@ -63,7 +65,7 @@ function readTurbo(files: HostFiles): HostFacts['turbo'] {
   return 'unknown';
 }
 
-export function readHostFiles(files: HostFiles): Omit<HostFacts, 'dockerVersion' | 'composeVersion' | 'os' | 'arch'> {
+export function readHostFiles(files: HostFiles): Omit<HostFacts, 'dockerVersion' | 'composeVersion' | 'dockerRootDir' | 'os' | 'arch'> {
   const onlineCpus = parseCpuList(files.read('/sys/devices/system/cpu/online') ?? '0');
   const groups = new Map<string, number[]>();
   const governors: Record<number, string | null> = {};
@@ -95,6 +97,7 @@ export function readHostFiles(files: HostFiles): Omit<HostFacts, 'dockerVersion'
 export async function probeHost(runner: DockerRunner, files: HostFiles = realHostFiles): Promise<HostFacts> {
   const info = JSON.parse(await docker(runner, ['info', '--format', '{{json .}}'])) as {
     ServerVersion: string;
+    DockerRootDir: string;
     OperatingSystem: string;
     Architecture: string;
   };
@@ -103,6 +106,7 @@ export async function probeHost(runner: DockerRunner, files: HostFiles = realHos
     ...readHostFiles(files),
     dockerVersion: info.ServerVersion,
     composeVersion,
+    dockerRootDir: info.DockerRootDir,
     os: info.OperatingSystem,
     arch: info.Architecture,
   };

@@ -1,5 +1,7 @@
 import { parseArgs } from 'node:util';
 import { doctorCommand } from './commands/doctor.js';
+import { prepareCommand } from './commands/prepare.js';
+import { runCommand } from './commands/run.js';
 import { ConfigError } from './config/load.js';
 
 const USAGE = `dexter-bench-lab: controlled, reproducible benchmark runs in Docker
@@ -17,6 +19,9 @@ Commands:
 Options:
   --target <file>   target.yaml of the system under test
   --profile <file>  profile.yaml with scenarios, scales and timings
+  --out <dir>       Results directory (run; default ./results)
+  --capacity        Capacity search instead of the scale matrix (run)
+  --raw-samples     Keep every request of k6 as an audit artifact (run)
   --json            Machine-readable output (doctor)
   -h, --help        Show this help
 
@@ -30,6 +35,9 @@ export async function main(argv: string[]): Promise<number> {
       target: { type: 'string' },
       profile: { type: 'string' },
       json: { type: 'boolean' },
+      out: { type: 'string' },
+      capacity: { type: 'boolean' },
+      'raw-samples': { type: 'boolean' },
     },
     allowPositionals: true,
   });
@@ -42,6 +50,10 @@ export async function main(argv: string[]): Promise<number> {
     switch (command) {
       case 'doctor':
         return await doctorCommand(values);
+      case 'prepare':
+        return await prepareCommand(values);
+      case 'run':
+        return await runCommand(values);
       default:
         process.stderr.write(`Unknown command: ${command}\n\n${USAGE}\n`);
         return 2;

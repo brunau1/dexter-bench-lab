@@ -24,6 +24,8 @@ COPY docs /opt/dexter-bench-lab/docs
 RUN npx vitest run
 
 FROM ${NODE_IMAGE} AS runtime
+# git records the commit of the target under test (BR-12)
+RUN apk add --no-cache git
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
 WORKDIR /opt/dexter-bench-lab/cli

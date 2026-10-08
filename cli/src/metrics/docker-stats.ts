@@ -120,9 +120,9 @@ export class DockerStatsSampler {
   private child: ChildProcess | null = null;
   private buffer = '';
 
-  start(containerIds: string[]): void {
-    if (containerIds.length === 0) return;
-    this.child = spawn('docker', ['stats', '--format', '{{json .}}', ...containerIds], { stdio: ['ignore', 'pipe', 'ignore'] });
+  /** Streams every running container; new containers (e.g. the load generator) appear as they start. */
+  start(): void {
+    this.child = spawn('docker', ['stats', '--format', '{{json .}}'], { stdio: ['ignore', 'pipe', 'ignore'] });
     this.child.stdout?.on('data', (chunk: Buffer) => {
       this.buffer += chunk.toString();
       const lines = this.buffer.split('\n');

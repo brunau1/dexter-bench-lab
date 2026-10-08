@@ -10,10 +10,12 @@
 import http from 'k6/http';
 import exec from 'k6/execution';
 import { check as k6check } from 'k6';
-import { Rate } from 'k6/metrics';
+import { Gauge, Rate } from 'k6/metrics';
 
 const env = __ENV;
 const benchErrors = new Rate('bench_errors');
+// Unix ms at which the measurement scenario started: the kit derives the measurement window from it (BR-2).
+const measureStart = new Gauge('bench_measure_start_ms');
 const SINK_URL = env.BENCH_SINK_URL || 'http://sink:9000';
 const INTERNAL = { tags: { usecase: '__bench_internal__' } };
 
@@ -58,6 +60,7 @@ function options() {
 }
 
 function usecase(name, fn) {
+  if (exec.scenario.name === 'measure') measureStart.add(exec.scenario.startTime);
   const tags = exec.vu.metrics.tags;
   tags.usecase = name;
   try {

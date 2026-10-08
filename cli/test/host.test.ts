@@ -36,7 +36,7 @@ function machine(spec: MachineSpec): HostFiles {
   return { read: (path) => files[path] ?? null };
 }
 
-const versions = { dockerVersion: '29.4.3', composeVersion: '5.1.3', os: 'Ubuntu 22.04', arch: 'x86_64' };
+const versions = { dockerVersion: '29.4.3', composeVersion: '5.1.3', dockerRootDir: '/var/lib/docker', os: 'Ubuntu 22.04', arch: 'x86_64' };
 const facts = (spec: MachineSpec, extra: Partial<HostFacts> = {}): HostFacts => ({ ...readHostFiles(machine(spec)), ...versions, ...extra });
 
 const LAPTOP: MachineSpec = { model: '11th Gen Intel(R) Core(TM) i7-1165G7', cores: 4, threadsPerCore: 2, governor: 'powersave', noTurbo: '0', memKb: 16_114_676, swapUsedKb: 1_300_000, load: 0.6 };
@@ -90,12 +90,13 @@ describe('host probe', () => {
       run: async (args) => ({
         code: 0,
         stderr: '',
-        stdout: args[0] === 'info' ? JSON.stringify({ ServerVersion: '29.4.3', OperatingSystem: 'Ubuntu', Architecture: 'x86_64' }) : 'v5.1.3\n',
+        stdout: args[0] === 'info' ? JSON.stringify({ ServerVersion: '29.4.3', DockerRootDir: '/data/docker', OperatingSystem: 'Ubuntu', Architecture: 'x86_64' }) : 'v5.1.3\n',
       }),
     };
     const result = await probeHost(runner, machine(LAPTOP));
     expect(result.dockerVersion).toBe('29.4.3');
     expect(result.composeVersion).toBe('5.1.3');
+    expect(result.dockerRootDir).toBe('/data/docker');
   });
 });
 
