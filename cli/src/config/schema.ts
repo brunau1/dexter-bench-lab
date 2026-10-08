@@ -164,12 +164,18 @@ export const metricSchema = z
     scope: z.string().regex(/^(scenario|container|sut|dependency:[a-z0-9_-]+)$/),
     /** Label whose values split the metric into series (e.g. an operation type). */
     by: z.string().optional(),
+    /** Longest range selector in the query (e.g. `5s` for `rate(x[5s])`); evaluation starts that long after the window opens (BR-2). */
+    range: duration.optional(),
     rationale: z.string().trim().min(10, 'every metric needs a rationale (BR-14)'),
     ref: z.string().regex(/^#[a-z0-9-]+$/, 'methodology anchor, e.g. #metrics-container'),
   })
   .refine((m) => m.source !== 'derived' || (DERIVED_METRICS as readonly string[]).includes(m.id), {
     message: `derived metrics must be one of: ${DERIVED_METRICS.join(', ')}`,
     path: ['id'],
+  })
+  .refine((m) => m.source !== 'prometheus' || !/\[\d+(ms|s|m|h)\]/.test(m.query) || m.range !== undefined, {
+    message: 'a query with a range selector must declare `range`, so its look-back never reaches into the warm-up (BR-2)',
+    path: ['range'],
   });
 
 export const catalogSchema = z.object({ schemaVersion: z.literal(1), metrics: z.array(metricSchema) });

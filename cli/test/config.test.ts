@@ -147,6 +147,11 @@ describe('catalogue validation (BR-14)', () => {
     expectConfigError(() => loadCatalog(join(dir, 'c.yaml')), 'metrics.0.rationale', 'rationale');
   });
 
+  it('requires `range` on queries with a range selector (BR-2)', () => {
+    const dir = workdir({ 'c.yaml': { schemaVersion: 1, metrics: [metric({ query: 'rate(x[5s])' })] } });
+    expectConfigError(() => loadCatalog(join(dir, 'c.yaml')), 'metrics.0.range');
+  });
+
   it('rejects a derived metric the code does not implement', () => {
     const dir = workdir({ 'c.yaml': { schemaVersion: 1, metrics: [metric({ id: 'magic', source: 'derived' })] } });
     expectConfigError(() => loadCatalog(join(dir, 'c.yaml')), 'derived metrics must be one of');

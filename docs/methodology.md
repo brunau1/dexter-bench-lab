@@ -102,7 +102,7 @@ Metrics are chosen by method, not by what a tool happens to expose:
 
 **Direction** tells the comparison which way is better: `lower-is-better`, `higher-is-better`, or `neutral`. Neutral metrics describe the workload (for example operations per second) and are reported as `changed ↑/↓`, never as improved or regressed.
 
-**Aggregation** reduces a time series inside the measurement window to one value per repetition: `avg`, `max`, `p95` (95th percentile of the samples), `rate` (per-second increase of a counter), or `delta` (last minus first value of a counter).
+**Aggregation** reduces a time series inside the measurement window to one value per repetition: `avg`, `max`, `p95` (95th percentile of the samples), `rate` (per-second increase of a counter), or `delta` (last minus first value of a counter). A query that computes a rate over a look-back range (for example the last 5 s) is evaluated only from `window start + range`: earlier points would contain warm-up data ([BR-2](#window)).
 
 ### 4.1 Scenario metrics (load generator, RED) {#metrics-scenario}
 | id | Unit | Direction | Why it matters |

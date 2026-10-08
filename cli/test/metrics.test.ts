@@ -153,6 +153,26 @@ describe('Prometheus collection', () => {
     expect(new URL(calls[0]!).searchParams.get('step')).toBe('1');
   });
 
+  it('starts range queries after their look-back so no point reads warm-up data (BR-2)', async () => {
+    const starts: number[] = [];
+    const fakeFetch = (async (url: string) => {
+      starts.push(Number(new URL(url).searchParams.get('start')));
+      const matrix = [{ metric: { container_label_com_docker_compose_service: 'api' }, values: [[102, '99'], [105, '1'], [110, '3']] }];
+      return { status: 200, json: async () => ({ status: 'success', data: { resultType: 'matrix', result: matrix } }) };
+    }) as unknown as typeof fetch;
+    const p95 = catalog.find((m) => m.id === 'cpu_cores_p95')!;
+    expect(p95.range).toBe(5000);
+    const { samples } = await collectPrometheus(new PrometheusClient('http://p', fakeFetch), [{ metric: p95, query: 'q' }], WINDOW);
+    expect(starts).toEqual([105]);
+    // the point at t=102 (look-back into the warm-up) is not aggregated
+    expect(samples[0]!.value).toBeCloseTo(2.9, 10);
+  });
+
+  it('reports a non-JSON Prometheus answer with its URL', async () => {
+    const fakeFetch = (async () => ({ status: 502, json: async () => JSON.parse('<html>') })) as unknown as typeof fetch;
+    await expect(new PrometheusClient('http://p', fakeFetch).queryRange('up', WINDOW)).rejects.toThrow('http://p/api/v1/query_range answered HTTP 502');
+  });
+
   it('fails loudly on a Prometheus error', async () => {
     const fakeFetch = (async () => ({ status: 400, json: async () => ({ status: 'error', error: 'parse error' }) })) as unknown as typeof fetch;
     await expect(new PrometheusClient('http://p', fakeFetch).queryRange('bad{', WINDOW)).rejects.toThrow('parse error');
