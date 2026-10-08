@@ -338,11 +338,15 @@ describe('run lifecycle (fake Docker)', () => {
 
     expect(runner.composeVerbs()).toEqual([
       'up', // observers
-      'down', 'up', 'run seed', 'run k6',
-      'down', 'up', 'run seed', 'run k6',
-      'down', 'up', 'run seed', 'run k6',
-      'down', 'down', // teardown: target, observers
+      'up', 'run seed', 'run k6', 'down',
+      'up', 'run seed', 'run k6', 'down',
+      'up', 'run seed', 'run k6', 'down',
+      'down', 'down', // teardown: last target, observers
     ]);
+    // a fresh compose project per repetition, so stale series of removed containers never match (BR-2, BR-3)
+    const projects = manifest.repetitions.map((r) => r.project);
+    expect(new Set(projects).size).toBe(3);
+    expect(projects[0]).toMatch(/-sut-001$/);
     const network = runner.calls.find((a) => a[0] === 'network' && a[1] === 'create')!;
     expect(network).toContain('--internal');
     expect(runner.calls.filter((a) => a[0] === 'compose' && (a.includes('up') || a.includes('run'))).every((a) => a.includes('never'))).toBe(true);
@@ -420,7 +424,7 @@ describe('run lifecycle (fake Docker)', () => {
     const networkRm = runner.calls.findIndex((a) => a[0] === 'network' && a[1] === 'rm');
     expect(rm).toBeGreaterThan(0);
     expect(rm).toBeLessThan(networkRm);
-    expect(runner.composeVerbs()).toEqual(['up', 'down', 'up', 'run seed', 'run k6', 'down', 'down']);
+    expect(runner.composeVerbs()).toEqual(['up', 'up', 'run seed', 'run k6', 'down', 'down']);
     expect(runner.calls.some((a) => a[0] === 'network' && a[1] === 'rm')).toBe(true);
     const manifest = readManifest(join(paths.out, readdirSync(paths.out)[0]!), { allowIncomplete: true });
     expect(manifest).toMatchObject({ status: 'failed', error: 'interrupted by a signal before completion' });
@@ -430,7 +434,7 @@ describe('run lifecycle (fake Docker)', () => {
     const paths = project({ variants: [{ name: 'v', env: { APP_IMAGE: 'demo-api:2' } }] });
     const { runner, deps } = harness();
     await run(paths, deps);
-    const teardown = runner.calls.findLastIndex((args) => args.includes('down') && args[args.indexOf('-p') + 1]!.endsWith('-sut'));
+    const teardown = runner.calls.findLastIndex((args) => args.includes('down') && /-sut-\d+$/.test(args[args.indexOf('-p') + 1]!));
     expect(teardown).toBeGreaterThan(0);
     expect(runner.envs[teardown]).toEqual({ APP_IMAGE: 'demo-api:2' });
   });

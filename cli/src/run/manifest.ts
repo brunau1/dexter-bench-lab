@@ -10,6 +10,8 @@ export interface RepetitionRecord {
   rep: number;
   rate: number;
   dir: string;
+  /** Compose project of the repetition's target. */
+  project?: string;
   startedAt: string;
   window: Window | null;
   datasetSha256: string | null;

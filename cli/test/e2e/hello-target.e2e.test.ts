@@ -78,6 +78,14 @@ describe('hello-target end to end', () => {
       expect(samples.some((s) => s.metric === 'redis_cmd_rate')).toBe(true);
       expect(samples.some((s) => s.metric === 'cpu_seconds_per_1k_req')).toBe(true);
       expect(cpuSubjects).not.toContain('seed');
+      // plausibility: counters never decrease and memory never exceeds the container's limit, which would
+      // mean series of other containers (e.g. removed ones) leaked into the selection
+      for (const s of samples.filter((x) => x.metric === 'cpu_cores_avg' || x.metric === 'cpu_cores_p95')) {
+        expect(s.value, `${rep.dir}: ${s.metric}/${s.subject}`).toBeGreaterThanOrEqual(0);
+      }
+      for (const s of samples.filter((x) => x.metric === 'mem_limit_ratio_max')) {
+        expect(s.value, `${rep.dir}: ${s.metric}/${s.subject}`).toBeLessThanOrEqual(1);
+      }
       if (rep.scenario === 'async-jobs') {
         expect(cpuSubjects).toContain('sink');
         expect(samples.find((s) => s.metric === 'e2e_p50')?.value).toBeGreaterThan(0);

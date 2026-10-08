@@ -75,7 +75,10 @@ interface RunContext {
   runId: string;
   runDir: string;
   network: string;
+  /** Compose project of the current repetition's target (one per repetition, see runRepetition). */
   sutProject: string;
+  /** Every target project of the run, for the teardown sweep. */
+  sutProjects: string[];
   obsProject: string;
   sutFiles: string[];
   obsFiles: string[];
@@ -182,6 +185,10 @@ async function runRepetition(ctx: RunContext, deps: RunDeps, step: Step, timings
   const scenario = profile.scenarios.find((s) => s.name === step.scenario)!;
   throwIfInterrupted(deps.signal);
   ctx.lastVariantEnv = variant.env;
+  // One compose project per repetition: cAdvisor keeps exporting removed containers for a while, and
+  // with a shared project name their stale series would be summed into this repetition's metrics.
+  ctx.sutProject = `${ctx.runId}-sut-${String(ctx.sutProjects.length + 1).padStart(3, '0')}`;
+  ctx.sutProjects.push(ctx.sutProject);
   const dir = stepDir(step);
   const repDir = join(ctx.runDir, dir);
   mkdirSync(repDir, { recursive: true });
@@ -193,12 +200,12 @@ async function runRepetition(ctx: RunContext, deps: RunDeps, step: Step, timings
     datasetSha256: null,
     valid: true,
     invalidReasons: [],
+    project: ctx.sutProject,
   };
   const sut = composeArgs(ctx.sutProject, target.dir, ctx.sutFiles);
   const opts = { env: variant.env };
-  deps.log(`[${step.scenario}/${step.scale}/${step.variant}] rep ${step.rep}: resetting state`);
+  deps.log(`[${step.scenario}/${step.scale}/${step.variant}] rep ${step.rep}: fresh target (${ctx.sutProject})`);
 
-  await docker(deps.runner, [...sut, 'down', '-v', '--remove-orphans', '--timeout', '10'], opts);
   await docker(deps.runner, [...sut, 'up', '-d', '--wait', '--pull', 'never', '--no-build'], opts);
   const seedOut = await docker(deps.runner, [...sut, 'run', '--rm', '--pull', 'never', ...envFlags({ BENCH_SEED: String(profile.seed) }), target.seed.service], opts);
   record.datasetSha256 = parseFingerprint(seedOut);
@@ -322,6 +329,8 @@ async function runRepetition(ctx: RunContext, deps: RunDeps, step: Step, timings
   writeFileSync(join(repDir, 'samples.json'), `${JSON.stringify(samples, null, 1)}\n`);
   writeFileSync(join(repDir, 'prometheus.json.gz'), gzipSync(JSON.stringify(raw)));
   writeFileSync(join(repDir, 'meta.json'), `${JSON.stringify(record, null, 2)}\n`);
+  // BR-3: the repetition's state (containers and volumes) is discarded with its project
+  await docker(deps.runner, [...sut, 'down', '-v', '--remove-orphans', '--timeout', '10'], opts);
   return record;
 }
 
@@ -391,11 +400,13 @@ async function cleanup(ctx: RunContext, deps: RunDeps, obsEnv: Record<string, st
     if (result.code !== 0) deps.log(`cleanup: docker ${args.slice(0, 6).join(' ')} … failed: ${result.stderr.trim()}`);
     return result.code === 0 ? result.stdout : '';
   };
-  await attempt([...composeArgs(ctx.sutProject, ctx.target.dir, ctx.sutFiles), 'down', '-v', '--remove-orphans', '--timeout', '10'], ctx.lastVariantEnv);
+  if (ctx.sutProject) {
+    await attempt([...composeArgs(ctx.sutProject, ctx.target.dir, ctx.sutFiles), 'down', '-v', '--remove-orphans', '--timeout', '10'], ctx.lastVariantEnv);
+  }
   await attempt([...composeArgs(ctx.obsProject, ctx.runDir, ctx.obsFiles), 'down', '-v', '--remove-orphans', '--timeout', '10'], obsEnv);
   // `compose down` leaves one-off `compose run` containers (k6 after an interruption) and needs the
   // run's files; a label sweep removes whatever is left, without depending on them.
-  for (const project of [ctx.sutProject, ctx.obsProject]) {
+  for (const project of [...ctx.sutProjects, ctx.obsProject]) {
     const label = `label=com.docker.compose.project=${project}`;
     const containers = (await attempt(['ps', '-aq', '--filter', label])).split('\n').filter(Boolean);
     if (containers.length > 0) await attempt(['rm', '-f', '-v', ...containers]);
@@ -509,7 +520,8 @@ export async function executeRun(options: RunOptions, rawDeps: RunDeps): Promise
     runId,
     runDir,
     network,
-    sutProject: `${runId}-sut`,
+    sutProject: '',
+    sutProjects: [],
     obsProject: `${runId}-obs`,
     sutFiles: [...target.composeFiles, sutOverridePath],
     obsFiles: [kitPath('core', 'observers', 'compose.yaml'), obsOverridePath],
