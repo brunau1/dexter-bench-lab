@@ -193,6 +193,8 @@ class FakeDocker implements DockerRunner {
   readonly envs: (Record<string, string> | undefined)[] = [];
   /** Called when k6 starts, e.g. to simulate Ctrl-C during the load. */
   onK6?: () => void;
+  /** Container id `docker ps` reports for the run's projects at teardown (e.g. an orphaned k6). */
+  leftover?: string;
   private seedCall = 0;
   private k6Call = 0;
 
@@ -211,6 +213,7 @@ class FakeDocker implements DockerRunner {
       const ref = args[args.length - 1]!;
       return ref === this.options.missingImage ? { code: 1, stdout: '', stderr: 'No such image' } : ok(`["${ref.split(':')[0]}@sha256:${'c'.repeat(64)}"]|sha256:${'d'.repeat(64)}\n`);
     }
+    if (args[0] === 'ps' && args.includes('-aq') && this.leftover) return ok(`${this.leftover}\n`);
     if (args[0] !== 'compose') return ok();
     if (args.includes('config')) {
       return ok(JSON.stringify({ services: { api: { image: 'demo-api:1' }, db: { image: 'mongo:8' }, seed: { image: 'demo-seed:1' } } }));
@@ -410,7 +413,13 @@ describe('run lifecycle (fake Docker)', () => {
     const controller = new AbortController();
     const { runner, deps } = harness({}, controller.signal);
     runner.onK6 = () => controller.abort();
+    runner.leftover = 'k6orphan';
     await expect(run(paths, deps)).rejects.toBeInstanceOf(InterruptedError);
+    // the one-off k6 container survives `compose down`; the label sweep removes it before the network
+    const rm = runner.calls.findIndex((a) => a[0] === 'rm' && a.includes('k6orphan'));
+    const networkRm = runner.calls.findIndex((a) => a[0] === 'network' && a[1] === 'rm');
+    expect(rm).toBeGreaterThan(0);
+    expect(rm).toBeLessThan(networkRm);
     expect(runner.composeVerbs()).toEqual(['up', 'down', 'up', 'run seed', 'run k6', 'down', 'down']);
     expect(runner.calls.some((a) => a[0] === 'network' && a[1] === 'rm')).toBe(true);
     const manifest = readManifest(join(paths.out, readdirSync(paths.out)[0]!), { allowIncomplete: true });

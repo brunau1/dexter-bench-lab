@@ -379,12 +379,22 @@ async function runCapacity(ctx: RunContext, deps: RunDeps, rawSamples: boolean):
 }
 
 async function cleanup(ctx: RunContext, deps: RunDeps, obsEnv: Record<string, string>): Promise<void> {
-  const attempt = async (args: string[], env?: Record<string, string>) => {
+  const attempt = async (args: string[], env?: Record<string, string>): Promise<string> => {
     const result = await deps.runner.run(args, env ? { env } : undefined).catch((error: unknown) => ({ code: 1, stdout: '', stderr: String(error) }));
     if (result.code !== 0) deps.log(`cleanup: docker ${args.slice(0, 6).join(' ')} … failed: ${result.stderr.trim()}`);
+    return result.code === 0 ? result.stdout : '';
   };
   await attempt([...composeArgs(ctx.sutProject, ctx.target.dir, ctx.sutFiles), 'down', '-v', '--remove-orphans', '--timeout', '10'], ctx.lastVariantEnv);
   await attempt([...composeArgs(ctx.obsProject, ctx.runDir, ctx.obsFiles), 'down', '-v', '--remove-orphans', '--timeout', '10'], obsEnv);
+  // `compose down` leaves one-off `compose run` containers (k6 after an interruption) and needs the
+  // run's files; a label sweep removes whatever is left, without depending on them.
+  for (const project of [ctx.sutProject, ctx.obsProject]) {
+    const label = `label=com.docker.compose.project=${project}`;
+    const containers = (await attempt(['ps', '-aq', '--filter', label])).split('\n').filter(Boolean);
+    if (containers.length > 0) await attempt(['rm', '-f', '-v', ...containers]);
+    const volumes = (await attempt(['volume', 'ls', '-q', '--filter', label])).split('\n').filter(Boolean);
+    if (volumes.length > 0) await attempt(['volume', 'rm', '-f', ...volumes]);
+  }
   if (deps.selfContainer) await attempt(['network', 'disconnect', '--force', ctx.network, deps.selfContainer]);
   await attempt(['network', 'rm', ctx.network]);
 }
