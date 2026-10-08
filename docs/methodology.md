@@ -193,7 +193,7 @@ Latencies and resource figures are not normally distributed, and 5 repetitions a
 
 - **BR-6 (comparison statistics).** The effect is the **ratio of medians** B / A. It is reported with:
   - a **95% percentile-bootstrap confidence interval**: resample each side with replacement 10 000 times, take the 2.5th and 97.5th percentiles of the resampled ratios. The random generator is seeded, so the same data always gives the same interval.
-  - a two-sided **Mann-Whitney U** test, α = 0.05: exact distribution when both sides have ≤ 20 values, normal approximation with tie correction above.
+  - a two-sided **Mann-Whitney U** test, α = 0.05: exact distribution when both sides have ≤ 20 values and no ties; otherwise the normal approximation with tie and continuity corrections.
 
 The ratio form makes effects comparable across metrics: 0.80 means B is 20% lower than A, whatever the unit.
 
