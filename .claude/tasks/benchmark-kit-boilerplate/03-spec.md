@@ -1,6 +1,6 @@
 # Spec — benchmark-kit-boilerplate (deliverable A: dexter-bench-lab)
 
-**Status:** APPROVED (2026-10-08), amended and re-approved (2026-10-08): two compose projects per run; MongoDB exporter at 2 s
+**Status:** APPROVED (2026-10-08), amended and re-approved (2026-10-08): two compose projects per run; MongoDB exporter at 2 s; review fixes: switchable CPU unit (`cpuUnit`, default logical), `withheld` verdict, sink `/stats` API
 
 Inputs: umbrella idea `pixer-nest/.claude/tasks/baseline-performance-benchmark/01-idea.md` (section A), `02-research.md` (this folder).
 
@@ -50,19 +50,20 @@ A reusable **callback sink** simulator measures asynchronous end-to-end time (re
 - **BR-7 (verdict):**
   - `improved` or `regressed` (direction from the catalogue entry) only if all of these hold: the CI excludes 1.0, p < α, and |ratio − 1| > that metric's noise floor;
   - for `neutral` metrics (workload descriptors), the same condition gives `changed ↑` / `changed ↓` instead of improved/regressed (clarified during MD-2);
+  - `withheld` when the comparison as a whole may not draw verdicts (BR-10, BR-11), so a withheld result is never mistaken for "no change" *(amended at review)*;
   - `no significant change` otherwise;
   - `inconclusive` when either side is unstable, has fewer than 3 valid repetitions, or is invalid.
 - **BR-8 (noise floor):** `bench calibrate` runs the same variant twice, interleaved (an A/A test). For each metric, the noise floor is the larger of |CI lower − 1| and |CI upper − 1| of the A/A ratio. It is stored per host class. Without a calibration for the host class, verdicts are labelled `uncalibrated` (still computed with a noise floor of 0).
 - **BR-9 (host classification):** the host is `benchmark-grade` only if **all** of these hold. Otherwise it is `smoke-only`, and every failing check is listed:
   - Isolation: each group gets whole physical cores (both SMT siblings), one physical core is reserved for the OS and the CLI, and nothing overlaps. The groups are: SUT = target services + dependencies; external = k6 + simulators + sink; observers.
-  - Each group gets at least `ceil(sum of its declared CPU limits)` cores.
+  - Each group gets at least `ceil(sum of its declared CPU limits)` CPUs, counted in the profile's `cpuUnit`: `logical` (default; hyper-threads, like cloud vCPUs) or `physical` (whole cores). Either way a group always receives whole physical cores, so groups never share execution units. *(Amended at review, approved by the user.)*
   - RAM ≥ (sum of memory limits of all bench containers) × 1.2.
   - The CPU governor is `performance` on all cores.
   - Swap used < 64 MiB.
   - 1-minute load average < 0.5 × online CPUs at pre-flight.
   - Docker ≥ 24 and Compose ≥ 2.24.
 - **BR-10 (smoke-only results):** a run on a `smoke-only` host is labelled `non-baseline` in its manifest and report. `compare` shows its numbers but gives no verdicts.
-- **BR-11 (host class):** the host class is a hash of the CPU model, physical cores, logical CPUs, total RAM rounded to GiB, kernel major.minor, and cgroup version. `compare` and calibration lookup refuse runs from different host classes. `--allow-cross-host` shows the numbers labelled "not comparable" and still gives no verdicts.
+- **BR-11 (host class):** runs that used different `cpuUnit` values are compared like different host classes: numbers without verdicts. *(Amended at review.)* Also: the host class is a hash of the CPU model, physical cores, logical CPUs, total RAM rounded to GiB, kernel major.minor, and cgroup version. `compare` and calibration lookup refuse runs from different host classes. `--allow-cross-host` shows the numbers labelled "not comparable" and still gives no verdicts.
 - **BR-12 (manifest):** every run writes `manifest.json` before its first repetition and finalizes it at the end. It contains:
   - the fingerprint and host class;
   - the classification and failed checks;
@@ -137,7 +138,7 @@ Each run uses **two compose projects** on one run-scoped `internal` network: `<r
 |---------------|--------|----------------------------|
 | `cli/package.json`, `tsconfig.json` | New | Runtime deps: `yaml`, `zod`. Dev: `typescript`, `vitest`, `@types/node`. CLI parsing with `node:util` `parseArgs`. HTTP via global `fetch`. Docker via spawning the `docker` CLI (compose features are needed; dockerode has no compose) |
 | `cli/Dockerfile` | New | `build` (tsc), `test` (vitest), `runtime` (node:22-alpine + `COPY --from=docker:29-cli` docker binary + compose plugin). All bases pinned by digest |
-| `bench` (wrapper) | New | `docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:$PWD" -w "$PWD" <cli-image> "$@"`. It talks to the daemon only through the socket. Same-path mount so compose bind paths resolve on the host daemon. Builds the CLI image on first use, tagged with the kit's git commit |
+| `bench` (wrapper) | New | `docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:$PWD" -w "$PWD" <cli-image> "$@"`. It talks to the daemon only through the socket. Same-path mount so compose bind paths resolve on the host daemon. Rebuilds the CLI image (`dexter-bench-cli:local`) on every call; the layer cache makes it near-instant and the image always matches the checkout, and the kit's `git describe` goes into the manifest *(amended at review)*. Runs with `--init` so signals reach the CLI (review M1) |
 | `cli/src/config/schema.ts` | New | zod schemas for `target.yaml`, `profile.yaml`, catalogue entries, `versions.yaml`. `schemaVersion: 1`. Validation errors say the file, path and expected value (BR-4, BR-14) |
 | `cli/src/config/load.ts` | New | Read and merge YAML; resolve paths relative to the file; merge the kit catalogue with the target extension (ids must be unique) |
 | `cli/src/host/probe.ts` | New | Reads `/proc/cpuinfo`, `/sys/devices/system/cpu/*/topology/thread_siblings_list`, `cpufreq/scaling_governor`, `intel_pstate/no_turbo` or `cpufreq/boost`, `/proc/meminfo`, `/proc/loadavg`, `uname`, `/sys/fs/cgroup` type; `docker version --format json`, `docker compose version`. The probe is an interface (injected in tests) |
@@ -148,12 +149,12 @@ Each run uses **two compose projects** on one run-scoped `internal` network: `<r
 | `cli/src/metrics/docker-stats.ts` | New | Fallback collector: samples `docker stats --no-stream --format json` every 1 s during the window when `doctor` finds cAdvisor unusable. It covers only the container metrics that have catalogue equivalents (cpu, mem, net, blkio), and the manifest records which collector was used |
 | `cli/src/k6/*.ts` | New | Builds the k6 env/options from profile scale + timings (open model only, BR-1). Parses the `handleSummary` JSON (per-usecase submetrics) |
 | `core/k6/bench.js` | New | k6 helper: `scenario(fn, {usecase})` tags requests; `options()` builds arrival-rate scenarios from `__ENV`; registers always-pass thresholds per usecase so the summary contains submetrics; `expect(id)` → POST to the sink; `handleSummary` writes JSON to `/results` |
-| `core/sink/` | New | ~100-line Node HTTP service: `POST /expect {id}` (records t0), `POST /callback/*` (extracts the id from the body via the `SINK_ID_PATH` JSON path, records the latency), `GET /metrics` (Prometheus histogram `sink_e2e_seconds`, counters `sink_unmatched_total`, `sink_timeouts_total`), `POST /reset` between repetitions (BR-19) |
+| `core/sink/` | New | ~150-line Node HTTP service: `POST /expect {id, measure}` (records t0), `POST /callback/*` (extracts the id from the body via the `SINK_ID_PATH` JSON path, records the latency), `GET /stats` (exact percentiles, timeouts, unmatched). No reset endpoint: the sink is recreated with the target every repetition. *(Amended at review: exact percentiles instead of a histogram.)* (BR-19) |
 | `core/observers/*` | New | Compose for Prometheus (`--storage.tsdb.path` on a per-run volume, 1 s scrape) and cAdvisor (`--docker_only`, housekeeping 1 s). Exporter services are generated from `dependencies[].type`: `mongodb` → `percona/mongodb_exporter` (`--collector.diagnosticdata`, global connection pool, scraped every 2 s with a 1.5 s timeout because the exporter returns no data at a 1 s timeout; amended 2026-10-08, approved by the user), `redis` → `oliver006/redis_exporter` |
 | `core/metrics/catalog.yaml` | New | The kit's catalogue (list below) |
 | `cli/src/run/plan.ts` | New | Expands the matrix; ABBA order (BR-16); capacity steps (BR-17); computes timings and windows (BR-2) |
 | `cli/src/run/compose.ts` | New | Generates the override YAML: cpusets per group, `mem_limit`/`cpus` from target.yaml, `networks: bench: internal: true` (BR-13), observers + exporters + sink + k6 services |
-| `cli/src/run/execute.ts` | New | The lifecycle above, through a `DockerRunner` interface (spawn wrapper; faked in unit tests). After the observers are up, the CLI attaches its own container to the internal bench network (`docker network connect <net> $HOSTNAME`) to query Prometheus without publishing ports (BR-13), and detaches at teardown, including on error. Writes `raw/<scenario>/<scale>/<variant>/<rep>/{k6.json,prom.json.gz,meta.json}` |
+| `cli/src/run/execute.ts` | New | The lifecycle above, through a `DockerRunner` interface (spawn wrapper; faked in unit tests). After the observers are up, the CLI attaches its own container to the internal bench network (`docker network connect <net> $HOSTNAME`) to query Prometheus without publishing ports (BR-13), and detaches at teardown, including on error. Writes `raw/<scenario>/<scale>/<variant>/rep-NN/{k6.json,samples.json,prometheus.json.gz,meta.json}` *(names amended at review)* |
 | `cli/src/run/manifest.ts` | New | Write and finalize the manifest (BR-12); validity markers (BR-1, BR-3) |
 | `cli/src/report/*.ts` | New | `summary.json` + `report.md`: headline caveat, host classification, per scenario/scale tables (median, CI, CV flag), resource table per container, kit overhead section (BR-15), invalid repetitions with reasons |
 | `cli/src/compare/*.ts` | New | Guards (BR-10, BR-11), calibration lookup (BR-8), per-metric verdicts, `not interleaved` label (BR-16) |
