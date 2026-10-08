@@ -1,0 +1,34 @@
+# Target description: WHAT is measured. See docs/methodology.md §9.
+# Limits mirror the production sizes you want to compare against; they drive the capacity plan (BR-9).
+schemaVersion: 1
+name: my-system                       # replace: short lowercase name of the system under test
+
+compose:                              # compose files that run the SUT, its dependencies and simulators
+  - compose.yaml
+
+services:                             # SUT services (pinned to the SUT cores)
+  - name: api                         # must match a compose service
+    cpus: 1.0
+    memory: 512m
+
+dependencies:                         # databases, caches, queues (SUT cores; exporters enabled by type)
+  - name: db
+    type: mongodb                     # mongodb | redis | custom (custom needs `exporter`)
+    cpus: 1.0
+    memory: 1g
+  - name: cache
+    type: redis
+    cpus: 0.5
+    memory: 256m
+
+simulators: []                        # stand-ins for external systems (external cores), e.g.:
+#  - name: payment-provider
+#    cpus: 0.5
+#    memory: 256m
+
+seed:
+  service: seed                       # compose service run before each repetition with BENCH_SEED set;
+                                      # it must print BENCH_DATASET_SHA256=<hex> (BR-3)
+
+# callbacks:                          # enable when scenarios expect async callbacks (BR-19)
+#   idPath: data.id                   # dotted path to the correlation id in the callback body

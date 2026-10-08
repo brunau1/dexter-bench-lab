@@ -1,0 +1,12 @@
+# Optional domain metrics, following docs/methodology.md §4. Every entry needs a rationale (BR-14).
+schemaVersion: 1
+metrics: []
+#  - id: queue_depth
+#    source: prometheus
+#    query: my_queue_waiting_jobs{ {{job}} }
+#    unit: jobs
+#    aggregation: max
+#    direction: lower
+#    scope: dependency:redis
+#    rationale: Jobs waiting for a worker; sustained growth means consumers cannot keep up.
+#    ref: '#metrics-dependencies'

@@ -1,0 +1,45 @@
+# Profile: HOW MUCH load, for how long, how many times. See docs/methodology.md §2, §3, §5.
+schemaVersion: 1
+seed: 42                              # dataset seed; fixed so every repetition starts from the same data
+repetitions: 5                        # ≥ 3 (BR-4); use 10+ when effects below ~10% matter
+
+timings:                              # BR-2: only `duration` is measured
+  warmup: 30s
+  duration: 2m
+  cooldown: 15s
+
+loadGenerator:                        # k6 resources (external cores); VUs bound concurrency, not rate
+  cpus: 2
+  memory: 1g
+  preAllocatedVUs: 50
+  maxVUs: 500
+
+variants:                             # one entry = plain run; two or more = interleaved comparison (BR-16)
+  - name: base
+    env: {}                           # environment for the compose files, e.g. { APP_IMAGE: my-app:1.4.0 }
+
+scenarios:                            # one scenario per use case that matters for cost or experience
+  - name: example
+    script: scenarios/example.js
+    usecases: [read-item]             # tags the script emits via the kit helper
+    callbacks: false
+
+scales:                               # arrival rate (iterations/s) per scenario at each scale (§3.1)
+  small:
+    example: 10
+  medium:
+    example: 50
+  large:
+    example: 150
+
+slo:                                  # service objectives for capacity search (§3.2)
+  latency_p99_ms: 300
+  error_rate: 0.001
+
+# capacity:                           # optional knee search (BR-17)
+#   scenario: example
+#   start: 10
+#   factor: 1.5
+#   max: 2000
+#   warmup: 20s
+#   stepDuration: 1m

@@ -1,0 +1,416 @@
+# Kit metric catalogue (BR-14). Rationales are summarized; the full reasoning is in docs/methodology.md at `ref`.
+#
+# source:
+#   k6          query = <k6 metric>:<stat>, read per use case from the k6 summary of the repetition
+#   sink        query = <stat>, read from the callback sink at the end of the repetition
+#   prometheus  query = PromQL range query over the measurement window, 1 s step. Placeholders:
+#                 {{containers}}  every container of the bench project
+#                 {{sut}}         containers of the SUT group (services + dependencies)
+#                 {{job}}         the exporter scrape job of one dependency
+#   derived     computed in code from other metrics (§4.5)
+# aggregation reduces the window to one value per repetition: avg | max | p95 | rate | delta | value
+# scope: scenario | container (split by compose service) | sut (one value) | dependency:<type>
+schemaVersion: 1
+metrics:
+  # §4.1 Scenario metrics (RED)
+  - id: req_rate
+    source: k6
+    query: http_reqs:rate
+    unit: req/s
+    aggregation: value
+    direction: neutral
+    scope: scenario
+    rationale: Rate actually achieved; below the target rate the latency numbers describe a different load.
+    ref: '#metrics-scenario'
+  - id: error_rate
+    source: k6
+    query: bench_errors:rate
+    unit: ratio
+    aggregation: value
+    direction: lower
+    scope: scenario
+    rationale: Failed requests and failed checks; a faster version that fails more is not faster.
+    ref: '#metrics-scenario'
+  - id: latency_p50
+    source: k6
+    query: http_req_duration:med
+    unit: ms
+    aggregation: value
+    direction: lower
+    scope: scenario
+    rationale: Typical user experience.
+    ref: '#metrics-scenario'
+  - id: latency_p90
+    source: k6
+    query: http_req_duration:p(90)
+    unit: ms
+    aggregation: value
+    direction: lower
+    scope: scenario
+    rationale: Slower part of the traffic; sensitive to queueing.
+    ref: '#metrics-scenario'
+  - id: latency_p95
+    source: k6
+    query: http_req_duration:p(95)
+    unit: ms
+    aggregation: value
+    direction: lower
+    scope: scenario
+    rationale: Slower part of the traffic; sensitive to queueing.
+    ref: '#metrics-scenario'
+  - id: latency_p99
+    source: k6
+    query: http_req_duration:p(99)
+    unit: ms
+    aggregation: value
+    direction: lower
+    scope: scenario
+    rationale: Tail latency that users notice and SLOs bind; honest under open-model load.
+    ref: '#metrics-scenario'
+  - id: latency_max
+    source: k6
+    query: http_req_duration:max
+    unit: ms
+    aggregation: value
+    direction: lower
+    scope: scenario
+    rationale: Worst case seen; reported for completeness, too noisy to drive verdicts alone.
+    ref: '#metrics-scenario'
+  - id: dropped_iterations
+    source: k6
+    query: dropped_iterations:count
+    unit: count
+    aggregation: value
+    direction: lower
+    scope: scenario
+    rationale: Validity signal; above zero the arrival rate was not applied and the repetition is invalid (BR-1).
+    ref: '#open-model'
+
+  # §4.2 Asynchronous end-to-end (callback sink)
+  - id: e2e_p50
+    source: sink
+    query: p50
+    unit: ms
+    aggregation: value
+    direction: lower
+    scope: scenario
+    rationale: Time from request to completed asynchronous work, as the caller experiences it.
+    ref: '#async'
+  - id: e2e_p95
+    source: sink
+    query: p95
+    unit: ms
+    aggregation: value
+    direction: lower
+    scope: scenario
+    rationale: Time from request to completed asynchronous work, slower part of the traffic.
+    ref: '#async'
+  - id: e2e_p99
+    source: sink
+    query: p99
+    unit: ms
+    aggregation: value
+    direction: lower
+    scope: scenario
+    rationale: Tail of the time from request to completed asynchronous work.
+    ref: '#async'
+  - id: callback_timeouts
+    source: sink
+    query: timeouts
+    unit: count
+    aggregation: value
+    direction: lower
+    scope: scenario
+    rationale: Work that never completed within the window, i.e. lost or stuck jobs.
+    ref: '#async'
+  - id: callback_unmatched
+    source: sink
+    query: unmatched
+    unit: count
+    aggregation: value
+    direction: lower
+    scope: scenario
+    rationale: Callbacks that match no request, i.e. duplicates or misrouted notifications.
+    ref: '#async'
+
+  # §4.3 Container resources (USE), every container of the project
+  - id: cpu_cores_avg
+    source: prometheus
+    query: container_cpu_usage_seconds_total{ {{containers}} }
+    unit: cores
+    aggregation: rate
+    direction: lower
+    scope: container
+    rationale: Average CPU used; with the request rate it gives cost per unit of work.
+    ref: '#metrics-container'
+  - id: cpu_cores_p95
+    source: prometheus
+    query: rate(container_cpu_usage_seconds_total{ {{containers}} }[5s])
+    unit: cores
+    aggregation: p95
+    direction: lower
+    scope: container
+    rationale: Peak CPU need; sizes the CPU limit.
+    ref: '#metrics-container'
+  - id: cpu_throttled_ratio
+    source: prometheus
+    query: rate(container_cpu_cfs_throttled_periods_total{ {{containers}} }[5s]) / rate(container_cpu_cfs_periods_total{ {{containers}} }[5s])
+    unit: ratio
+    aggregation: avg
+    direction: lower
+    scope: container
+    rationale: Saturation; share of periods that hit the CPU quota, so latency added by the limit, not the code.
+    ref: '#metrics-container'
+  - id: mem_working_set_avg
+    source: prometheus
+    query: container_memory_working_set_bytes{ {{containers}} }
+    unit: bytes
+    aggregation: avg
+    direction: lower
+    scope: container
+    rationale: Memory actively used, which the kernel cannot easily reclaim.
+    ref: '#metrics-container'
+  - id: mem_working_set_max
+    source: prometheus
+    query: container_memory_working_set_bytes{ {{containers}} }
+    unit: bytes
+    aggregation: max
+    direction: lower
+    scope: container
+    rationale: Peak memory need; sizes the memory limit.
+    ref: '#metrics-container'
+  - id: mem_limit_ratio_max
+    source: prometheus
+    query: container_memory_working_set_bytes{ {{containers}} } / (container_spec_memory_limit_bytes{ {{containers}} } > 0)
+    unit: ratio
+    aggregation: max
+    direction: lower
+    scope: container
+    rationale: Saturation; how close the container came to its memory limit.
+    ref: '#metrics-container'
+  - id: oom_events
+    source: prometheus
+    query: container_oom_events_total{ {{containers}} }
+    unit: count
+    aggregation: delta
+    direction: lower
+    scope: container
+    rationale: Errors; allocations failed or the container was killed for lack of memory.
+    ref: '#metrics-container'
+  - id: net_rx_bps
+    source: prometheus
+    query: container_network_receive_bytes_total{ {{containers}} }
+    unit: bytes/s
+    aggregation: rate
+    direction: neutral
+    scope: container
+    rationale: Traffic volume; explains changes in serialization or chattiness between services.
+    ref: '#metrics-container'
+  - id: net_tx_bps
+    source: prometheus
+    query: container_network_transmit_bytes_total{ {{containers}} }
+    unit: bytes/s
+    aggregation: rate
+    direction: neutral
+    scope: container
+    rationale: Traffic volume; explains changes in serialization or chattiness between services.
+    ref: '#metrics-container'
+  - id: blkio_read_bps
+    source: prometheus
+    query: container_fs_reads_bytes_total{ {{containers}} }
+    unit: bytes/s
+    aggregation: rate
+    direction: lower
+    scope: container
+    rationale: Disk reads; for databases a proxy for cache misses.
+    ref: '#metrics-container'
+  - id: blkio_write_bps
+    source: prometheus
+    query: container_fs_writes_bytes_total{ {{containers}} }
+    unit: bytes/s
+    aggregation: rate
+    direction: lower
+    scope: container
+    rationale: Disk writes; for databases a proxy for write amplification.
+    ref: '#metrics-container'
+
+  # §4.4 MongoDB (percona/mongodb_exporter --collect-all)
+  - id: mongo_ops_rate
+    source: prometheus
+    query: mongodb_ss_opcounters{ {{job}} }
+    by: legacy_op_type
+    unit: ops/s
+    aggregation: rate
+    direction: neutral
+    scope: dependency:mongodb
+    rationale: Workload shape (queries, inserts, updates, deletes, commands); added queries show here first.
+    ref: '#metrics-mongodb'
+  - id: mongo_op_latency_avg
+    source: prometheus
+    query: rate(mongodb_ss_opLatencies_latency{ {{job}} }[5s]) / rate(mongodb_ss_opLatencies_ops{ {{job}} }[5s]) / 1000
+    by: op_type
+    unit: ms
+    aggregation: avg
+    direction: lower
+    scope: dependency:mongodb
+    rationale: Server-side time per operation; separates a slower database from a slower application.
+    ref: '#metrics-mongodb'
+  - id: mongo_connections
+    source: prometheus
+    query: mongodb_ss_connections{ {{job}}, conn_type="current" }
+    unit: count
+    aggregation: max
+    direction: lower
+    scope: dependency:mongodb
+    rationale: Connections held open, each costing server memory; connection-pool changes show here.
+    ref: '#metrics-mongodb'
+  - id: mongo_wt_cache_used_bytes
+    source: prometheus
+    query: mongodb_ss_wt_cache_bytes_currently_in_the_cache{ {{job}} }
+    unit: bytes
+    aggregation: max
+    direction: neutral
+    scope: dependency:mongodb
+    rationale: Working set held in the WiredTiger cache.
+    ref: '#metrics-mongodb'
+  - id: mongo_wt_cache_dirty_bytes
+    source: prometheus
+    query: mongodb_ss_wt_cache_tracked_dirty_bytes_in_the_cache{ {{job}} }
+    unit: bytes
+    aggregation: avg
+    direction: lower
+    scope: dependency:mongodb
+    rationale: Data waiting to be written; high values mean write pressure.
+    ref: '#metrics-mongodb'
+  - id: mongo_docs_rate
+    source: prometheus
+    query: mongodb_ss_metrics_document{ {{job}} }
+    by: doc_op_type
+    unit: docs/s
+    aggregation: rate
+    direction: neutral
+    scope: dependency:mongodb
+    rationale: Documents returned, inserted, updated, deleted; with ops it shows over-fetching.
+    ref: '#metrics-mongodb'
+  - id: mongo_page_faults_rate
+    source: prometheus
+    query: mongodb_ss_extra_info_page_faults{ {{job}} }
+    unit: faults/s
+    aggregation: rate
+    direction: lower
+    scope: dependency:mongodb
+    rationale: Data read from disk because it was not in memory.
+    ref: '#metrics-mongodb'
+
+  # §4.4 Redis (oliver006/redis_exporter)
+  - id: redis_cmd_rate
+    source: prometheus
+    query: redis_commands_processed_total{ {{job}} }
+    unit: cmd/s
+    aggregation: rate
+    direction: neutral
+    scope: dependency:redis
+    rationale: Total command throughput, the load placed on Redis.
+    ref: '#metrics-redis'
+  - id: redis_cmd_latency_avg
+    source: prometheus
+    query: rate(redis_commands_duration_seconds_total{ {{job}} }[5s]) / rate(redis_commands_total{ {{job}} }[5s]) * 1e6
+    by: cmd
+    unit: µs
+    aggregation: avg
+    direction: lower
+    scope: dependency:redis
+    rationale: Server-side time per command used by the workload; finds expensive commands.
+    ref: '#metrics-redis'
+  - id: redis_used_memory
+    source: prometheus
+    query: redis_memory_used_bytes{ {{job}} }
+    unit: bytes
+    aggregation: max
+    direction: lower
+    scope: dependency:redis
+    rationale: Memory held by data and overhead; drives instance size and cost.
+    ref: '#metrics-redis'
+  - id: redis_clients_connected
+    source: prometheus
+    query: redis_connected_clients{ {{job}} }
+    unit: count
+    aggregation: max
+    direction: neutral
+    scope: dependency:redis
+    rationale: Open client connections.
+    ref: '#metrics-redis'
+  - id: redis_clients_blocked
+    source: prometheus
+    query: redis_blocked_clients{ {{job}} }
+    unit: count
+    aggregation: avg
+    direction: lower
+    scope: dependency:redis
+    rationale: Clients waiting on blocking commands; sustained values mean consumers cannot keep up.
+    ref: '#metrics-redis'
+  - id: redis_hit_ratio
+    source: prometheus
+    query: rate(redis_keyspace_hits_total{ {{job}} }[5s]) / (rate(redis_keyspace_hits_total{ {{job}} }[5s]) + rate(redis_keyspace_misses_total{ {{job}} }[5s]))
+    unit: ratio
+    aggregation: avg
+    direction: higher
+    scope: dependency:redis
+    rationale: Cache effectiveness.
+    ref: '#metrics-redis'
+  - id: redis_evicted_keys
+    source: prometheus
+    query: redis_evicted_keys_total{ {{job}} }
+    unit: count
+    aggregation: delta
+    direction: lower
+    scope: dependency:redis
+    rationale: Keys removed because memory ran out; data loss for caches, failure for queues.
+    ref: '#metrics-redis'
+  - id: redis_expired_rate
+    source: prometheus
+    query: redis_expired_keys_total{ {{job}} }
+    unit: keys/s
+    aggregation: rate
+    direction: neutral
+    scope: dependency:redis
+    rationale: Keys expiring by TTL; workload shape of caches and locks.
+    ref: '#metrics-redis'
+
+  # §4.5 Efficiency and cost proxies
+  - id: cpu_seconds_per_1k_req
+    source: derived
+    query: sum CPU-seconds of the SUT group in the window / requests * 1000
+    unit: CPU-s
+    aggregation: value
+    direction: lower
+    scope: sut
+    rationale: Core cost proxy; CPU needed per unit of work, independent of the load level.
+    ref: '#metrics-efficiency'
+  - id: sut_memory_peak
+    source: derived
+    query: max over the window of the summed working set of the SUT group
+    unit: bytes
+    aggregation: value
+    direction: lower
+    scope: sut
+    rationale: Memory to provision for the whole SUT.
+    ref: '#metrics-efficiency'
+  - id: req_per_core
+    source: derived
+    query: req_rate / average cores used by the SUT group
+    unit: req/s/core
+    aggregation: value
+    direction: higher
+    scope: sut
+    rationale: Throughput per provisioned core.
+    ref: '#metrics-efficiency'
+  - id: inflight_littles_law
+    source: derived
+    query: req_rate * mean latency (Little's Law)
+    unit: requests
+    aggregation: value
+    direction: neutral
+    scope: sut
+    rationale: Average concurrency sustained; a sharp rise between scales signals queueing.
+    ref: '#metrics-efficiency'

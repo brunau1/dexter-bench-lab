@@ -18,7 +18,10 @@ RUN npx tsc -p tsconfig.json
 FROM build AS test
 COPY cli/vitest.config.ts ./
 COPY cli/test ./test
-RUN npx vitest run --passWithNoTests
+COPY core /opt/dexter-bench-lab/core
+COPY templates /opt/dexter-bench-lab/templates
+COPY docs /opt/dexter-bench-lab/docs
+RUN npx vitest run
 
 FROM ${NODE_IMAGE} AS runtime
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
@@ -27,5 +30,7 @@ WORKDIR /opt/dexter-bench-lab/cli
 COPY cli/package.json cli/package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
 COPY --from=build /opt/dexter-bench-lab/cli/dist ./dist
+COPY core /opt/dexter-bench-lab/core
+COPY templates /opt/dexter-bench-lab/templates
 ENV BENCH_KIT_DIR=/opt/dexter-bench-lab
 ENTRYPOINT ["node", "/opt/dexter-bench-lab/cli/dist/main.js"]

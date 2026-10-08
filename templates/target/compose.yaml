@@ -1,0 +1,42 @@
+# The SUT, its dependencies, simulators and the seed job.
+# Rules: no `ports`, no host-specific paths, no `cpus`/`mem_limit`/`cpuset` (the kit sets them from
+# target.yaml), healthchecks on every long-running service so the kit can wait for readiness.
+services:
+  api:
+    image: ${APP_IMAGE:-my-app:latest}  # variants override APP_IMAGE
+    environment:
+      DB_URL: mongodb://db:27017/app
+      CACHE_URL: redis://cache:6379
+    depends_on:
+      db: { condition: service_healthy }
+      cache: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 2s
+      retries: 30
+
+  db:
+    image: mongo:8.0.32
+    volumes: [db-data:/data/db]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 2s
+      retries: 30
+
+  cache:
+    image: redis:8.8.3-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      retries: 30
+
+  seed:
+    build: ./seed
+    profiles: [seed]                  # only started by the kit, once per repetition
+    environment:
+      DB_URL: mongodb://db:27017/app
+    depends_on:
+      db: { condition: service_healthy }
+
+volumes:
+  db-data:

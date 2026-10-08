@@ -159,7 +159,7 @@ Collected through exporters, enabled per dependency type declared by the target.
 | id | Unit | Direction | Why it matters |
 |----|------|-----------|----------------|
 | `redis_cmd_rate` | cmd/s | neutral | Total command throughput: the load placed on Redis. |
-| `redis_cmd_latency_avg{cmd}` | µs | lower | Server-side time per command for the 10 most frequent commands; finds expensive commands (for example O(n) scans). |
+| `redis_cmd_latency_avg{cmd}` | µs | lower | Server-side time per command, for each command the workload uses; finds expensive commands (for example O(n) scans). |
 | `redis_used_memory` | bytes | lower | Memory held by data and overhead; drives instance size and cost. |
 | `redis_clients_connected` | count | neutral | Open client connections. |
 | `redis_clients_blocked` | count | lower | Clients waiting on blocking commands (queues); sustained values mean consumers can't keep up. |
