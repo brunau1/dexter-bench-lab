@@ -99,8 +99,9 @@ export function compareRuns(a: Side, b: Side, catalog: MetricDef[], options: Com
       ...(calibration && key in calibration.floors ? { noiseFloor: calibration.floors[key]! } : {}),
     });
     if (withheld.length > 0) {
+      // the statistics stay visible, but no verdict is drawn: `withheld` is never "no change"
       result.reasons = [...withheld, ...result.reasons];
-      if (result.verdict !== 'inconclusive') result.verdict = 'no-significant-change';
+      result.verdict = 'withheld';
     }
     entries.push({ scenario: ea.scenario, scale: ea.scale, metric: ea.metric, subject: ea.subject, key: ea.key, unit: ea.unit, overhead: ea.overhead, result });
   }
@@ -124,6 +125,7 @@ const VERDICT_LABEL: Record<Verdict, string> = {
   'changed-down': '↓ changed',
   'no-significant-change': 'no significant change',
   inconclusive: '❔ inconclusive',
+  withheld: '– (withheld)',
 };
 
 function ratioText(result: ComparisonResult): string {
@@ -147,8 +149,8 @@ export function renderComparison(c: Comparison): string {
   if (c.forcedVerdicts) out.push('> 🟥 **VERDICTS FORCED ON NON-BASELINE RUNS (--force-verdicts).** For testing the kit only; never a basis for decisions.', '');
 
   const counts = new Map<Verdict, number>();
-  for (const e of c.entries.filter((x) => !x.overhead)) counts.set(e.result.verdict, (counts.get(e.result.verdict) ?? 0) + 1);
-  out.push('**Summary (system under test):** ' + [...counts.entries()].map(([v, n]) => `${VERDICT_LABEL[v]}: ${n}`).join(' · '), '');
+  for (const e of c.entries.filter((x) => !x.overhead && x.result.verdict !== 'withheld')) counts.set(e.result.verdict, (counts.get(e.result.verdict) ?? 0) + 1);
+  if (c.verdictsWithheld.length === 0) out.push('**Summary (system under test):** ' + [...counts.entries()].map(([v, n]) => `${VERDICT_LABEL[v]}: ${n}`).join(' · '), '');
 
   const groups = new Map<string, ComparedEntry[]>();
   for (const e of c.entries) groups.set(`${e.scenario} · ${e.scale}`, [...(groups.get(`${e.scenario} · ${e.scale}`) ?? []), e]);
@@ -161,7 +163,7 @@ export function renderComparison(c: Comparison): string {
       formatValue(e.result.b?.median, e.unit),
       ratioText(e.result),
       e.result.p === null ? '–' : e.result.p.toPrecision(2),
-      `${VERDICT_LABEL[e.result.verdict]}${e.result.uncalibrated && e.result.verdict !== 'inconclusive' ? ' (uncalibrated)' : ''}`,
+      `${VERDICT_LABEL[e.result.verdict]}${e.result.uncalibrated && !['inconclusive', 'withheld'].includes(e.result.verdict) ? ' (uncalibrated)' : ''}`,
     ]);
     out.push(table(['Metric', 'Subject', 'A median', 'B median', 'B vs A [95% CI]', 'p', 'Verdict'], rows), '');
   }

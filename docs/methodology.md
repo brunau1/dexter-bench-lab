@@ -209,6 +209,7 @@ Recalibrate after any change to the host or the kit version.
   - **improved** or **regressed**, according to the metric's direction, only if *all* hold: the confidence interval excludes 1.0; p < 0.05; and |ratio − 1| is larger than the metric's noise floor. For a neutral metric the same condition gives **changed ↑** or **changed ↓**.
   - **no significant change** otherwise.
   - **inconclusive** when either side is unstable ([BR-5](#stability)), has fewer than 3 valid repetitions, or comes from an invalid run.
+  - **withheld** when the comparison as a whole may not draw verdicts: a smoke-only host ([BR-10](#classification)), different host classes or CPU units ([BR-11](#host-class)). The statistics are still shown; a withheld result never means "no change".
 
 Requiring the interval, the test and the noise floor together is deliberately conservative: a false "we gained 15%" is worse than a missed small gain.
 

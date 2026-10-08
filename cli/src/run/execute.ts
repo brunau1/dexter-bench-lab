@@ -24,7 +24,7 @@ import { checkDatasetFingerprints, writeManifest, type Manifest, type Repetition
 import { buildPlan, capacityRates, measurementWindow, stepDir, type Step, type Window } from './plan.js';
 import { sinkImageTag } from './images.js';
 import { renderReport } from '../report/render.js';
-import { writeSummary } from './summary.js';
+import { byCodePoint, writeSummary } from './summary.js';
 
 export const REPORT_FILE = 'report.md';
 
@@ -311,7 +311,7 @@ async function runRepetition(ctx: RunContext, deps: RunDeps, step: Step, timings
     record.invalidReasons.push(`k6 exited with code ${k6.code}`);
   }
 
-  samples.sort((x, y) => x.metric.localeCompare(y.metric) || x.subject.localeCompare(y.subject) || x.key.localeCompare(y.key));
+  samples.sort((x, y) => byCodePoint(x.metric, y.metric) || byCodePoint(x.subject, y.subject) || byCodePoint(x.key, y.key));
   writeFileSync(join(repDir, 'samples.json'), `${JSON.stringify(samples, null, 1)}\n`);
   writeFileSync(join(repDir, 'prometheus.json.gz'), gzipSync(JSON.stringify(raw)));
   writeFileSync(join(repDir, 'meta.json'), `${JSON.stringify(record, null, 2)}\n`);

@@ -34,6 +34,11 @@ export interface RunSummary {
 export const SUMMARY_FILE = 'summary.json';
 const KIT_SERVICES = new Set(['k6', 'sink', 'prometheus', 'cadvisor']);
 
+/** Locale-independent order: reports must be byte-identical on every machine (BR-18). */
+export function byCodePoint(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 export function isOverhead(subject: string): boolean {
   return KIT_SERVICES.has(subject) || subject.endsWith('-exporter');
 }
@@ -81,12 +86,12 @@ export function buildSummary(runDir: string, manifest: Manifest, catalog: Metric
     })
     .sort(
       (a, b) =>
-        a.scenario.localeCompare(b.scenario) ||
-        a.scale.localeCompare(b.scale) ||
-        a.variant.localeCompare(b.variant) ||
-        a.metric.localeCompare(b.metric) ||
-        a.subject.localeCompare(b.subject) ||
-        a.key.localeCompare(b.key),
+        byCodePoint(a.scenario, b.scenario) ||
+        byCodePoint(a.scale, b.scale) ||
+        byCodePoint(a.variant, b.variant) ||
+        byCodePoint(a.metric, b.metric) ||
+        byCodePoint(a.subject, b.subject) ||
+        byCodePoint(a.key, b.key),
     );
   return {
     schemaVersion: 1,

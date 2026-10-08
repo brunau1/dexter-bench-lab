@@ -124,7 +124,7 @@ describe('comparison guards (BR-10, BR-11)', () => {
     const b = fakeRun(root, { runId: 'r2', hostClass: '222222222222', variants: { base: FAST } });
     const comparison = compareRuns(loadSide(a), loadSide(b), catalog, { ...OPTIONS, allowCrossHost: true });
     expect(comparison.verdictsWithheld[0]).toContain('BR-11');
-    expect(verdictOf(comparison, 'latency_p99').verdict).toBe('no-significant-change');
+    expect(verdictOf(comparison, 'latency_p99').verdict).toBe('withheld');
     expect(verdictOf(comparison, 'latency_p99').ratio).toBeCloseTo(173 / 212, 10);
   });
 
@@ -133,7 +133,12 @@ describe('comparison guards (BR-10, BR-11)', () => {
     const dir = fakeRun(root, { runId: 'r1', baseline: false, variants: { base: SLOW, cand: FAST } });
     const withheld = compareRuns(loadSide(`${dir}:base`), loadSide(`${dir}:cand`), catalog, OPTIONS);
     expect(withheld.verdictsWithheld[0]).toContain('BR-10');
-    expect(verdictOf(withheld, 'latency_p99').verdict).toBe('no-significant-change');
+    // a real 18% difference must not read as "no significant change" just because verdicts are withheld
+    expect(withheld.entries.every((e) => e.result.verdict === 'withheld')).toBe(true);
+    expect(verdictOf(withheld, 'latency_p99').ratio).toBeCloseTo(173 / 212, 10);
+    const md = renderComparison(withheld);
+    expect(md).toContain('– (withheld)');
+    expect(md).not.toContain('no significant change');
 
     const forced = compareRuns(loadSide(`${dir}:base`), loadSide(`${dir}:cand`), catalog, { ...OPTIONS, forceVerdicts: true });
     expect(forced.forcedVerdicts).toBe(true);

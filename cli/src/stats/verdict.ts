@@ -4,7 +4,8 @@ import { mannWhitneyU } from './mann-whitney.js';
 
 export type Direction = 'lower' | 'higher' | 'neutral';
 
-export type Verdict = 'improved' | 'regressed' | 'changed-up' | 'changed-down' | 'no-significant-change' | 'inconclusive';
+/** `withheld`: the comparison as a whole may not draw verdicts (BR-10, BR-11); never to be read as "no change". */
+export type Verdict = 'improved' | 'regressed' | 'changed-up' | 'changed-down' | 'no-significant-change' | 'inconclusive' | 'withheld';
 
 export interface Side {
   /** One value per valid repetition. */

@@ -17,6 +17,11 @@ export async function calibrateCommand(options: RunCommandOptions & { 'calibrati
     { name: 'a1', env: base.env },
     { name: 'a2', env: base.env },
   ]);
+  if (!manifest.valid) {
+    // an invalid A/A run has no trustworthy floors; never overwrite a good calibration with it (BR-8)
+    process.stderr.write(`calibration NOT written: the A/A run is invalid (${manifest.invalidReasons.join('; ')})\n`);
+    return 3;
+  }
   const catalog = readRunCatalog(runDir);
   const summary = buildSummary(runDir, manifest, catalog);
   const side = (variant: string) => ({ runDir, manifest, summary, variant });
@@ -34,5 +39,5 @@ export async function calibrateCommand(options: RunCommandOptions & { 'calibrati
   writeFileSync(file, `${JSON.stringify(calibration, null, 1)}\n`);
   process.stdout.write(`${file}\n`);
   if (!manifest.host.baseline) process.stderr.write('calibration taken on a smoke-only host: valid only for testing the kit (BR-10)\n');
-  return manifest.valid ? 0 : 3;
+  return 0;
 }
