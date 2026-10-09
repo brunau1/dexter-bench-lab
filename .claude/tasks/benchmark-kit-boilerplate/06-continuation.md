@@ -2,7 +2,7 @@
 
 > Resume for the next session. Rewritten in place at every update; git history keeps earlier states.
 
-- **Updated:** 2026-10-08 · **Phase reached:** closed (review APPROVED, ADRs written) · **Verdict:** APPROVED
+- **Updated:** 2026-10-09 · **Phase reached:** closed (review APPROVED, ADRs written) · **Verdict:** APPROVED
 - **Repo / branch:** `~/workspace/dexter-bench-lab` → `git@github-personal:brunau1/dexter-bench-lab.git` · `main` @ `242acb1` · **Release:** `v0.1.0` (annotated tag on `242acb1`, pushed) · **Pushed:** yes · **Merged:** n/a (work is on `main`; personal repo, no PR flow)
 - **Umbrella:** `~/workspace/pixer-nest/.claude/tasks/baseline-performance-benchmark/` (`01-idea.md` = the roadmap A → B → C; `06-continuation.md` = roadmap state, local only)
 
@@ -38,13 +38,13 @@
 - Foreground `sleep` is blocked in agent sessions: long waits go through background tasks.
 
 ## Open questions
-- [ ] Which machine is the dedicated benchmark host (CPU, RAM, on-prem or non-burstable cloud)? — user — blocks deliverable C's baseline, not B.
-- [ ] Where B's handoffs live (`~/.claude/.claude/tasks/<slug>/` in the config repo, or elsewhere)? — user — first step of B.
+- [x] Benchmark host (user, 2026-10-08): probably a local 8c/16t 3.2 GHz, 35 GB RAM machine under WSL + Docker; cloud hosts should stay easy to set up. **v0.1.0 classifies WSL as smoke-only** (no cpufreq → the required governor check fails), so a kit change is needed before C's baseline; options in B's research.
+- [x] B's handoffs: `~/.claude/.claude/tasks/benchmark-specialization-skill/` (local only, not synced).
 
 ## Next steps
-1. **Deliverable B: specialization skill.** `/research benchmark-specialization-skill`, using the umbrella `01-idea.md` section B and the open questions above. Research must define the boilerplate ↔ skill contract: how the skill fetches a pinned kit version (first release to pin: `v0.1.0`), what it generates from `templates/target/`, how a generated project upgrades. Gate after research.
-2. `/spec` → approval → `/implement` → `/review` for B, following `~/.claude/docs/development-workflow.md`. Close with B's own `06-continuation.md` and update the umbrella's.
-3. **Deliverable C: pixer-nest application** (after B). Use the skill to generate the pixer-nest test project. Answer C's open questions first: the bank provider to mock, where the project lives, scales from estrelabet volumes, how the jobs process runs. Then calibrate and run the baseline on the benchmark host.
+1. **Deliverable B is at its research gate.** Its state, the four open decisions (kit access, kit `v0.2.0` scope, naming the kit in the skill, skill name) and the next command live in `~/.claude/.claude/tasks/benchmark-specialization-skill/06-continuation.md` (local to this laptop).
+2. Likely kit work coming from B (to be decided at B's gate): governor `unverifiable` + operator attestation on VM/WSL/cloud hosts (ADR 0003, methodology §6), `docs/host-setup.md`, per-version CLI image tag, `CHANGELOG.md`, project entry point under `templates/project/`.
+3. **Deliverable C: pixer-nest application** (after B). Answer C's open questions first (bank provider to mock, where the project lives, scales from estrelabet volumes, how the jobs process runs), then calibrate and run the baseline on the benchmark host.
 
 ## After merge
 - [x] Pushed to `origin/main`.
@@ -55,10 +55,9 @@
 ## How to resume
 Paste into a new session, from `~/workspace/dexter-bench-lab`:
 ```
-Read .claude/tasks/benchmark-kit-boilerplate/06-continuation.md, then the umbrella roadmap at
-~/workspace/pixer-nest/.claude/tasks/baseline-performance-benchmark/01-idea.md (section B) and its
-06-continuation.md. Deliverable A (this kit) is closed. Start deliverable B, the specialization skill:
-the kit is released as v0.1.0 for the skill to pin. First ask me the open questions listed in the
-continuation (where B's handoffs live, the benchmark host),
-then run /research benchmark-specialization-skill and stop at its gate. Follow my development workflow.
+Read ~/.claude/.claude/tasks/benchmark-specialization-skill/06-continuation.md, then its 02-research.md,
+and the umbrella ~/workspace/pixer-nest/.claude/tasks/baseline-performance-benchmark/06-continuation.md.
+Deliverable B (the benchmark specialization skill) is at the research gate. First ask me the four open
+questions listed in the continuation, record my answers, then run /spec benchmark-specialization-skill
+and stop at its approval gate. Follow my development workflow.
 ```
